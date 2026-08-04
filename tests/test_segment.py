@@ -155,6 +155,31 @@ def test_a_gap_while_stationary_stays_one_visit(conn):
     assert trips == []
 
 
+def test_days_of_silence_do_not_resume_a_stay(conn):
+    """Displacement decides, but only within reason.
+
+    Two visits to the same place with the phone off in between must not become
+    one multi-day stay. Nobody stood still for 55 hours, and the resume rule has
+    to stop somewhere short of claiming they did.
+    """
+    Track().stay(hours=2).insert(conn)
+    Track(start_ts=BASE_TS + 200_000).stay(hours=2).insert(conn)
+    segment.rebuild(conn)
+
+    stays, _ = stays_and_trips(conn)
+    assert len(stays) == 2
+
+
+def test_an_overnight_gap_still_resumes(conn):
+    """The bound must not be so tight it breaks the case it exists to serve."""
+    Track().stay(minutes=30).gap(hours=9).stay(minutes=30).insert(conn)
+    segment.rebuild(conn)
+
+    stays, _ = stays_and_trips(conn)
+    assert len(stays) == 1
+    assert stays[0]["had_gap"] == 1
+
+
 def test_a_gap_while_travelling_splits(conn):
     """Silence plus displacement means the time is genuinely unaccounted for."""
     track = Track().stay(minutes=20).gap(hours=2)
@@ -294,6 +319,8 @@ def test_confidence_breakdown_is_persisted(conn):
 
     stay = conn.execute("SELECT * FROM stays").fetchone()
     breakdown = json.loads(stay["confidence_breakdown"])
+    # place_match is absent because nothing has been named yet — an unmatched
+    # stay omits the component rather than being penalised for it.
     assert set(breakdown) == {"dwell", "tightness", "density", "accuracy"}
     assert 0 <= stay["confidence"] <= 100
 

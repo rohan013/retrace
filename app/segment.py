@@ -29,7 +29,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
-from . import config, db, quality
+from . import config, db, places, quality
 from .geo import distance_m, path_length_m, timezone_at
 
 CURSOR_KEY = "segment_cursor_ts"
@@ -164,8 +164,12 @@ def detect_stays(points: Sequence[SegPoint]) -> list[Stay]:
             open_stay = Stay(device=point.device, points=[point])
             continue
 
-        if point.ts - open_stay.last.ts > config.GAP_MAX_SECONDS:
-            resumed = (
+        gap = point.ts - open_stay.last.ts
+        if gap > config.GAP_MAX_SECONDS:
+            # Displacement decides, but only up to a point. Silence over a few
+            # hours plausibly means the phone sat still; silence over days cannot
+            # be read as standing in one spot, however little the position moved.
+            resumed = gap <= config.GAP_RESUME_MAX_SECONDS and (
                 distance_m(
                     (open_stay.last.lat, open_stay.last.lon), (point.lat, point.lon)
                 )
@@ -405,14 +409,21 @@ def _insert_stays(conn: sqlite3.Connection, stays: Sequence[Stay]) -> list[int]:
     ids: list[int] = []
     for stay in stays:
         centre = stay.centroid
-        score, breakdown = confidence(stay)
+        # Resolved before scoring so a known place can raise confidence. This is
+        # local lookup only — reverse geocoding never runs inside a rebuild.
+        area_id, place_id, match = places.resolve(conn, centre[0], centre[1])
+        # An unmatched stay omits the component rather than scoring zero for it:
+        # before anything has been named, every stay would otherwise look weak.
+        score, breakdown = confidence(
+            stay, place_match=match if match > places.NO_MATCH_SCORE else None
+        )
         cursor = conn.execute(
             """
             INSERT INTO stays
                 (device, start_ts, end_ts, center_lat, center_lon, radius_m,
-                 point_count, first_point_id, last_point_id, tz, had_gap,
-                 confidence, confidence_breakdown, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 point_count, first_point_id, last_point_id, place_id, area_id,
+                 tz, had_gap, confidence, confidence_breakdown, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 stay.device,
@@ -424,6 +435,8 @@ def _insert_stays(conn: sqlite3.Connection, stays: Sequence[Stay]) -> list[int]:
                 len(stay.points),
                 stay.first.id,
                 stay.last.id,
+                place_id,
+                area_id,
                 timezone_at(centre[0], centre[1]),
                 int(stay.had_gap),
                 score,
