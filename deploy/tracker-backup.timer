@@ -1,0 +1,14 @@
+[Unit]
+Description=Nightly tracker database backup
+
+[Timer]
+# Pinned to UTC: the archives are stamped with the UTC date, and a timer on local
+# time would drift away from that twice a year at the DST boundary.
+OnCalendar=*-*-* 04:17:00 UTC
+# The machine is not always on at 04:17, and a backup that silently never runs
+# is worse than no backup at all.
+Persistent=yes
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

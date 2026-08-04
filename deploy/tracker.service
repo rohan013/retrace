@@ -1,0 +1,62 @@
+[Unit]
+Description=Personal location tracker
+Documentation=file:///home/rohan/tracker/README.md
+After=network-online.target
+Wants=network-online.target
+
+# Ingest must survive a restart loop rather than being given up on: a phone that
+# gets connection-refused drops the fixes it was holding, and those are gone for
+# good. Rate limiting a restart is the one failure mode that loses raw data.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=rohan
+Group=rohan
+WorkingDirectory=/home/rohan/tracker
+EnvironmentFile=/home/rohan/tracker/.env
+
+# Bound to loopback on purpose. Cloudflare Tunnel reaches it from this machine;
+# nothing should be able to reach it from the network directly.
+#
+# Access logging stays on. A phone posts a few thousand lines a day, which is
+# nothing to journald, and it is the only way to answer the question that actually
+# comes up — "is the phone reaching the server at all, and is its token right?"
+ExecStart=/home/rohan/tracker/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8420 \
+    --log-level info
+
+Restart=always
+RestartSec=3
+
+# -- hardening --------------------------------------------------------------
+# The service reads location data and writes one SQLite file. It has no business
+# touching anything else on the machine.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/rohan/tracker/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+# Outbound only, and only what the geocoder would need if it is ever enabled.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

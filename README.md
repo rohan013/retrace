@@ -1,0 +1,371 @@
+# tracker
+
+A self-hosted replacement for Google Maps Timeline, running on your own server,
+reachable through your existing Cloudflare Tunnel.
+
+The point of it is accuracy. **Google throws your raw fixes away** — it
+downsamples, snaps to roads and known places, and hands back an already-interpreted
+result you cannot re-derive or argue with. Here every fix your phone ever sent is
+kept forever, and everything above it is a *derived layer* that can be thrown away
+and rebuilt from scratch with different settings. When a stay looks wrong you can
+open it, look at the individual fixes and their accuracy circles, change a
+threshold and rebuild.
+
+Python 3.12, FastAPI, SQLite, Leaflet. No Node, no Docker, no build step.
+
+---
+
+## Layout
+
+```
+app/          the service
+  db.py         schema and migrations
+  ingest.py     accepting fixes
+  quality.py    flagging bad ones (never deleting them)
+  segment.py    turning fixes into stays and trips
+  places.py     turning stays into places
+  timeline.py   assembling a day
+  providers/    one file per phone app; add a file, not a branch
+static/       the web UI
+scripts/      backup, synthetic data
+deploy/       systemd units
+tests/
+data/         the database and its backups (gitignored)
+```
+
+---
+
+## Install
+
+```bash
+cd /home/rohan/tracker
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+cp .env.example .env
+python3 -c "import secrets; print('INGEST_TOKEN=' + secrets.token_urlsafe(32))"
+# paste that into .env, replacing INGEST_TOKEN=replace-me
+```
+
+`.env` holds the shared secret your phone sends. It is gitignored; never commit it.
+
+Run it:
+
+```bash
+sudo cp deploy/tracker.service deploy/tracker-backup.service deploy/tracker-backup.timer \
+        /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tracker.service tracker-backup.timer
+systemctl status tracker.service
+```
+
+It listens on `127.0.0.1:8420` only. Nothing reaches it except through the tunnel.
+
+---
+
+## Cloudflare — the blocking step
+
+With Tailscale deliberately out of the picture, **the phone cannot reach the
+server at all until this is done.** The tunnel here is token-based and managed
+from the dashboard, so none of it can be scripted locally.
+
+### 1. Route the hostname
+
+Zero Trust → **Networks → Tunnels** → your tunnel → **Public Hostname** → Add:
+
+| | |
+|---|---|
+| Subdomain | `tracker` |
+| Domain | your domain |
+| Service | `HTTP` → `localhost:8420` |
+
+### 2. Protect the UI
+
+Zero Trust → **Access → Applications** → Add → Self-hosted:
+
+| | |
+|---|---|
+| Application domain | `tracker.<your-domain>` |
+| Policy | **Allow**, Include → Emails → `rohan9513@gmail.com` |
+
+### 3. Let the phone in — and only for writing
+
+Your phone cannot complete an SSO login, so the ingest path needs a second
+application that skips Access:
+
+| | |
+|---|---|
+| Application domain | `tracker.<your-domain>` **path** `/api/v1/locations` |
+| Policy | **Bypass**, Include → Everyone |
+
+**Getting this wrong is the most likely cause of silent tracking failure** — the
+phone gets an SSO redirect instead of a 200, drops the fixes it was holding, and
+nothing tells you.
+
+> **Why the API is shaped the way it is.** Access policies match on *path*, not on
+> method. A Bypass rule on `/api/v1/locations` therefore exempts every method on
+> that path — so if the same path also served reads, this step would publish your
+> entire location history to anyone who guessed the URL. It doesn't:
+> `/api/v1/locations` accepts `POST` and nothing else, and returns 405 to a GET.
+> Raw fixes are read back from `/api/v1/points`, which stays behind Access with
+> everything else. The bypassed path is defended by the ingest token alone, which
+> is why that token is the one secret worth treating carefully.
+
+Check it from anywhere:
+
+```bash
+curl -i https://tracker.<your-domain>/api/v1/locations          # 405, no SSO redirect
+curl -i https://tracker.<your-domain>/api/v1/points             # SSO redirect
+```
+
+---
+
+## iPhone — OwnTracks
+
+App Store → OwnTracks → Settings:
+
+| Setting | Value |
+|---|---|
+| Mode | **HTTP** |
+| URL | `https://tracker.<your-domain>/api/v1/locations` |
+| Authentication | on |
+| User / Device ID | `phone` (anything; it becomes the device name) |
+| Password | your `INGEST_TOKEN` |
+| Monitoring | **Move** |
+| locatorDisplacement | `25` m |
+| locatorInterval | `180` s |
+
+Then, in **iOS Settings → OwnTracks**:
+
+- Location: **Always**, and **Precise Location on**
+- **Background App Refresh on**
+- **Never force-quit the app.** iOS will not restart it for you, and tracking
+  simply stops.
+
+Low Power Mode suppresses background location. You will see gaps; the `batt` and
+`bs` fields recorded with every fix are what let you tell "I was somewhere with no
+signal" apart from "my phone was dead".
+
+**Distance filter first, time heartbeat second** — never pure time-based:
+
+| Mode | Displacement | Heartbeat | Points/day | Battery |
+|---|---|---|---|---|
+| High fidelity | 10–15 m | 60 s | 15–30k | +25–40 %/day |
+| **Balanced ← default** | **25 m** | **3 min** | **3–6k** | **+10–15 %/day** |
+| Battery saver | 100 m | 10 min | 0.5–1.5k | +5 %/day |
+
+Start dense. Data can be thinned later; it can never be recovered. At balanced
+that is roughly **1.1 GB/year** with full raw payloads retained.
+
+---
+
+## Using it
+
+Open `https://tracker.<your-domain>/`.
+
+- **Arrow keys** or the date field move between days.
+- **Click** a timeline entry to focus it on the map; **double-click** to name the
+  place. Naming is permanent and applies to every other stay at that spot, past
+  and future — you name somewhere once.
+- **Raw fixes** toggles every individual fix with its accuracy circle, flagged
+  ones in red. This is the feature, not a debug view: it is how you judge whether
+  a stay is real or an artefact of bad reception, and it is exactly what a tracker
+  that discards raw data cannot offer.
+
+**Draw areas before you bother with geocoding.** Ten circles — home, work, gym,
+parents — name about 80 % of your stay-time with no external calls and no
+ambiguity:
+
+```bash
+curl -X POST https://tracker.<your-domain>/api/v1/areas \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Home","lat":51.5074,"lon":-0.1278,"radius_m":120}'
+```
+
+Reverse geocoding is **off by default** (`GEOCODING_ENABLED`). It sends your
+coordinates to a public service; turn it on deliberately or not at all.
+
+---
+
+## API
+
+Everything is provider-neutral: no phone app's name appears in a path, so
+swapping recorders never means reconfiguring the phone. Which app sent a payload
+is detected from its shape.
+
+| | |
+|---|---|
+| `POST /api/v1/locations` | ingest — **the only write-open path**, token required |
+| `GET /api/v1/points` | raw fixes, keyset-paginated by `since_id` |
+| `GET /api/v1/days/{date}` | a day assembled: stays and trips interleaved, plus a summary |
+| `GET /api/v1/stays` · `PATCH /api/v1/stays/{id}` | query, name, annotate |
+| `GET /api/v1/trips` | |
+| `GET POST PATCH DELETE /api/v1/places` | |
+| `GET POST DELETE /api/v1/areas` | |
+| `GET /api/v1/devices` · `GET /api/v1/stats` | |
+| `POST /api/v1/reprocess` | rebuild the derived layer |
+| `GET /healthz` | |
+
+Ingest accepts the token as `Authorization: Bearer <token>`, as an HTTP Basic
+password (what OwnTracks sends), or as `?token=` — OwnTracks iOS can set Basic
+auth but not arbitrary headers.
+
+Pagination is keyset, not `OFFSET`: an offset scan re-reads every row it skips and
+falls apart once a range runs to hundreds of pages.
+
+---
+
+## Tuning
+
+Every threshold is in `.env`. Change one, rebuild, compare. Raw fixes are never
+touched by a rebuild and neither are your names and notes:
+
+```bash
+sudo systemctl restart tracker
+curl -X POST https://tracker.<your-domain>/api/v1/reprocess
+```
+
+The ones that matter:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `STAY_RADIUS_M` | 70 | How far you can wander and still count as "here" |
+| `STAY_DRIFT_CAP` | 1.5 | Multiple of the radius you may drift from a stay's *first* fix. Stops a slow walk collapsing into one fake visit at the midpoint |
+| `STAY_MIN_SECONDS` | 300 | Minimum dwell to count as a stay |
+| `GAP_MAX_SECONDS` | 3600 | Silence beyond which displacement decides whether a stay continues |
+| `GAP_RESUME_DISTANCE_M` | 100 | After a gap, this close means you never left |
+| `GAP_RESUME_MAX_SECONDS` | 43200 | …but only up to this much silence. An overnight gap at home is one stay; three days of it is not |
+| `MAX_DETOUR_SPEED_MPS` | 83 | Out-and-back speed above which a run of fixes is a stale-fix artefact |
+
+**Accuracy is a weight, not a filter.** Fixes are never dropped for a large
+accuracy radius — that radius is a confidence estimate, not proof the position is
+wrong, and discarding those fixes replaces real route geometry with straight
+lines. Only genuinely absurd values (>10 km) and Null Island are flagged, and
+flagged fixes are *kept*, just excluded from derived output.
+
+To see the effect of a change before your own data is dense enough to judge:
+
+```bash
+INGEST_TOKEN=$(grep ^INGEST_TOKEN .env | cut -d= -f2) \
+  .venv/bin/python scripts/synth_day.py --days 7
+```
+
+---
+
+## Backups
+
+`tracker-backup.timer` runs nightly at 04:17 UTC (21:17 local), keeping 7 daily and 4 weekly
+gzipped snapshots in `data/backups/`. `Persistent=yes`, so a machine that was off
+at 04:17 backs up when it comes back.
+
+It uses SQLite's online backup API rather than copying the file: the database is
+in WAL mode and being written to, so a byte-for-byte copy can capture a torn page
+and a stale `-wal` — an archive that only turns out to be unreadable on the day
+you need it. Each snapshot is opened and integrity-checked before it is allowed
+to displace an older one.
+
+```bash
+.venv/bin/python scripts/backup.py     # run it now
+systemctl list-timers tracker-backup   # when it next fires
+```
+
+Restore:
+
+```bash
+sudo systemctl stop tracker
+gunzip -c data/backups/daily/tracker-20260804.db.gz > data/tracker.db
+sudo systemctl start tracker
+```
+
+The derived layer needs no backup at all — `POST /api/v1/reprocess` rebuilds all
+of it from the raw fixes. Only `points`, `places`, `areas` and `stay_notes` hold
+anything irreplaceable.
+
+---
+
+## How it decides things
+
+```
+points          raw fixes, immutable, never deleted, never downsampled
+  ↓             quality flags — computed, non-destructive
+stays + trips   derived; delete-and-rebuild over a window, idempotent
+  ↓
+places          user edits live HERE, and a rebuild never touches them
+  ↓
+events          empty for now — the extension point
+```
+
+Three rules hold the whole design together:
+
+**Raw fixes are immutable.** Bad ones are flagged, never removed. Every derived
+query adds `AND anomaly IS NOT 1`. If a flag turns out to be wrong, the data is
+still there.
+
+**Points are never stamped with the stay they belong to.** A stay is recomputed
+from the points in its window every time. Claiming points means a stay can never
+grow or be re-evaluated when fixes arrive late — which is normal on iOS, where a
+phone that was out of signal uploads an hour of history at once.
+
+**User edits are a separate layer.** Names, notes and places live in tables the
+rebuild does not write to, with `name_locked_at` recording that you chose a name
+deliberately. A nightly job silently clobbering a name you set is the failure that
+makes people abandon a tracker.
+
+Stay detection is a single-pass sweep with two departures from the usual approach:
+a **drift cap** on distance from the stay's first fix, so a slow walk cannot drag
+the running centroid along behind it; and **gap handling by displacement** rather
+than by blind splitting, so tracking that stops when you settle at the gym and
+resumes as you leave still produces one stay rather than none.
+
+Every stay carries a **confidence score** (0–100) with its breakdown stored
+alongside it — dwell, tightness, place match, density, accuracy — so you can sort
+by it, hide the weak ones, and debug the algorithm against real data instead of
+guessing.
+
+Timezone is resolved **per stay from its own coordinates**, not from one account
+setting, so a travel day puts each stay on the correct local date.
+
+---
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest
+```
+
+`tests/conftest.py` has a `Track` builder that produces deterministic point
+streams — "sat still for six hours, drove 40 km, phone went quiet for two hours" —
+so tuning is measurable rather than a matter of opinion. `test_segment.py` is the
+one that matters: each case in it is a real failure mode (a stay across midnight,
+a gap while stationary versus a gap while travelling, a slow walk, a loop returning
+to its start, a teleport outlier mid-drive, two devices interleaved).
+
+---
+
+## Troubleshooting
+
+**No data arriving.** `journalctl -fu tracker` while you move around. Nothing at
+all means Cloudflare — check the Bypass application is on the exact path
+`/api/v1/locations` and that a `curl -i https://tracker.<your-domain>/api/v1/locations`
+returns 405 rather than an SSO redirect. 401 in the log means the password in
+OwnTracks does not match `INGEST_TOKEN`.
+
+**Gaps in the day.** Usually iOS. Check Low Power Mode, that Location is *Always*
+and *Precise*, that Background App Refresh is on, and that the app was not
+force-quit. Turn on raw fixes and look at the battery values around the gap.
+
+**A stay in the wrong place, or a walk recorded as a stay.** Turn on raw fixes and
+look at the accuracy circles first — often the fixes really are that scattered.
+Then try lowering `STAY_RADIUS_M` or `STAY_DRIFT_CAP` and reprocessing.
+
+**Two visits merged into one.** The gap between them was under
+`GAP_RESUME_MAX_SECONDS` and you came back to within `GAP_RESUME_DISTANCE_M`.
+Lower either.
+
+---
+
+## Not built yet
+
+The `events` table and `trips.mode` exist and are empty — they are where passive
+sources (iOS Shortcuts, email receipts, calendar) attach later, without a schema
+change. There is no activity classification, no Takeout import, no multi-user.
