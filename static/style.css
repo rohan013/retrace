@@ -1,0 +1,190 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #12151a;
+  --muted: #6b7280;
+  --line: #e3e6ea;
+  --accent: #2563eb;
+  --stay: #7c3aed;
+  --warn: #b45309;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --ink: #e6edf3;
+    --muted: #8b949e;
+    --line: #262c36;
+    --accent: #58a6ff;
+    --stay: #a78bfa;
+    --warn: #d29922;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+#app { display: flex; height: 100%; }
+
+#sidebar {
+  width: 360px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+
+main { flex: 1; position: relative; }
+#map { position: absolute; inset: 0; }
+
+/* -- day navigation -- */
+
+#daybar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+#daybar input[type="date"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+
+button {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+
+#controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+#controls select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+}
+
+.toggle { display: flex; align-items: center; gap: 5px; color: var(--muted); cursor: pointer; }
+
+/* -- summary -- */
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.summary .stat { background: var(--panel); padding: 10px 12px; }
+.summary .value { font-size: 18px; font-variant-numeric: tabular-nums; }
+.summary .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+/* -- timeline -- */
+
+#timeline { flex: 1; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+
+.item {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.item:hover, .item.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+.item .when { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.item .title { font-weight: 600; }
+.item .detail { color: var(--muted); font-size: 12px; }
+
+.item.stay .title { color: var(--stay); }
+.item.trip .title { color: var(--accent); }
+
+.badge {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid currentColor;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.badge.gap { color: var(--warn); }
+.badge.low { color: var(--warn); }
+
+.unnamed { font-style: italic; color: var(--muted); font-weight: 500; }
+
+.empty { padding: 24px 12px; color: var(--muted); text-align: center; }
+
+/* -- legend -- */
+
+#legend {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.swatch { width: 10px; height: 10px; border-radius: 2px; }
+.swatch.slow { background: hsl(210 80% 50%); }
+.swatch.fast { background: hsl(0 80% 50%); }
+.ramp {
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg,
+    hsl(210 80% 50%), hsl(140 75% 45%), hsl(50 85% 50%), hsl(0 80% 50%));
+}
+
+.leaflet-container { background: var(--bg); }
+
+@media (max-width: 760px) {
+  #app { flex-direction: column; }
+  #sidebar { width: 100%; height: 45%; border-right: none; border-bottom: 1px solid var(--line); }
+  main { flex: 1; }
+}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tracker</title>
+  <!-- Leaflet is vendored rather than pulled from a CDN: a self-hosted tracker
+       should not stop working because unpkg is unreachable, and should not
+       announce itself to a third party on every page load. -->
+  <link rel="stylesheet" href="/static/vendor/leaflet.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <header id="daybar">
+        <button id="prev" title="Previous day">&larr;</button>
+        <input type="date" id="date">
+        <button id="next" title="Next day">&rarr;</button>
+        <button id="today" title="Jump to today">Today</button>
+      </header>
+
+      <div id="controls">
+        <select id="device"><option value="">All devices</option></select>
+        <label class="toggle">
+          <input type="checkbox" id="show-raw">
+          <span>Raw fixes</span>
+        </label>
+      </div>
+
+      <section id="summary" class="summary"></section>
+      <ol id="timeline"></ol>
+      <p id="empty" class="empty" hidden>Nothing recorded on this day.</p>
+    </aside>
+
+    <main>
+      <div id="map"></div>
+      <div id="legend">
+        <span class="swatch slow"></span> slow
+        <span class="ramp"></span>
+        <span class="swatch fast"></span> fast
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/vendor/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
