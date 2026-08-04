@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+geopy
+tzfpy
+gpxpy
