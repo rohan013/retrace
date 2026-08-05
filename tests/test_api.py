@@ -285,15 +285,36 @@ def test_areas_can_be_created_and_take_effect_on_rebuild(client, conn):
 
     area = client.post(
         "/api/v1/areas",
-        json={"name": "Home", "lat": HOME[0], "lon": HOME[1], "radius_m": 150},
-    ).json()
+        json={
+            "name": "Home",
+            "min_lat": HOME[0] - 0.001,
+            "min_lon": HOME[1] - 0.001,
+            "max_lat": HOME[0] + 0.001,
+            "max_lon": HOME[1] + 0.001,
+        },
+    )
+    assert area.status_code == 201
     client.post("/api/v1/reprocess")
 
-    assert client.get("/api/v1/stays").json()[0]["area_id"] == area["id"]
+    assert client.get("/api/v1/stays").json()[0]["area_id"] == area.json()["id"]
 
 
 def test_creating_an_area_requires_its_fields(client, conn):
     assert client.post("/api/v1/areas", json={"name": "x"}).status_code == 400
+
+
+def test_an_area_with_reversed_corners_is_rejected(client, conn):
+    response = client.post(
+        "/api/v1/areas",
+        json={
+            "name": "x",
+            "min_lat": HOME[0] + 0.001,  # swapped
+            "min_lon": HOME[1],
+            "max_lat": HOME[0],
+            "max_lon": HOME[1] + 0.001,
+        },
+    )
+    assert response.status_code == 400
 
 
 # -- operations -------------------------------------------------------------

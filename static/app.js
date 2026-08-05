@@ -63,6 +63,14 @@ function distance(metres) {
 const SPEED_SATURATION_MPS = 25; // 90 km/h — the top of the colour ramp
 const SPEED_BUCKETS = 8;
 
+const AREA_STYLE = {
+  color: "#0d9488",
+  weight: 2,
+  fillColor: "#0d9488",
+  fillOpacity: 0.1,
+  dashArray: "4 4",
+};
+
 // Blue through green and yellow to red as speed rises.
 function speedColour(mps) {
   const hue = 210 - 210 * Math.min((mps || 0) / SPEED_SATURATION_MPS, 1);
@@ -292,6 +300,116 @@ function renderRaw(points) {
   state.layers.raw = group;
 }
 
+/* -- areas ------------------------------------------------------------------
+ * Areas are map furniture, not part of a day's view — loaded once and left
+ * alone by clearLayers()/load(), unlike the track/stays/raw layers.
+ */
+
+const areasLayer = L.layerGroup().addTo(map);
+
+function areaShapeLayer(area) {
+  return L.rectangle(
+    [
+      [area.min_lat, area.min_lon],
+      [area.max_lat, area.max_lon],
+    ],
+    AREA_STYLE
+  );
+}
+
+async function loadAreas() {
+  const areas = await getJSON("/api/v1/areas");
+  areasLayer.clearLayers();
+  for (const area of areas) {
+    const shape = areaShapeLayer(area);
+    shape.bindPopup(
+      `<strong>${escapeHTML(area.name)}</strong><br>` +
+        `<a href="#" class="popup-delete" data-area-id="${area.id}">Delete</a>`
+    );
+    shape.on("popupopen", (e) => {
+      e.popup
+        .getElement()
+        .querySelector(".popup-delete")
+        ?.addEventListener("click", async (ev) => {
+          ev.preventDefault();
+          await fetch(`/api/v1/areas/${area.id}`, { method: "DELETE" });
+          await loadAreas();
+        });
+    });
+    shape.addTo(areasLayer);
+  }
+}
+
+// Click-drag to draw: mousedown sets the anchor corner/centre, mousemove shows
+// a live preview, mouseup finalises and prompts for a name. Map dragging is
+// disabled for the duration so the gesture draws instead of panning.
+let drawing = null;
+
+function startDrawing() {
+  drawing = { start: null, preview: null };
+  map.dragging.disable();
+  map.getContainer().style.cursor = "crosshair";
+  el("draw-area").textContent = "Cancel";
+  el("draw-area").classList.add("active");
+  map.on("mousedown", onDrawStart);
+}
+
+function stopDrawing() {
+  if (drawing?.preview) map.removeLayer(drawing.preview);
+  drawing = null;
+  map.dragging.enable();
+  map.getContainer().style.cursor = "";
+  el("draw-area").textContent = "+ Area";
+  el("draw-area").classList.remove("active");
+  map.off("mousedown", onDrawStart);
+  map.off("mousemove", onDrawMove);
+  map.off("mouseup", onDrawEnd);
+}
+
+function onDrawStart(e) {
+  drawing.start = e.latlng;
+  map.on("mousemove", onDrawMove);
+  map.on("mouseup", onDrawEnd);
+}
+
+function onDrawMove(e) {
+  if (drawing.preview) map.removeLayer(drawing.preview);
+  drawing.preview = L.rectangle([drawing.start, e.latlng], AREA_STYLE).addTo(map);
+}
+
+async function onDrawEnd(e) {
+  map.off("mousemove", onDrawMove);
+  map.off("mouseup", onDrawEnd);
+
+  const finished = drawing;
+  const end = e.latlng;
+  stopDrawing();
+
+  // A click with no drag produces a zero-size shape — not a usable area.
+  if (map.distance(finished.start, end) < 3) return;
+
+  const name = prompt("Name this area");
+  if (!name || !name.trim()) return;
+
+  const body = {
+    name: name.trim(),
+    min_lat: Math.min(finished.start.lat, end.lat),
+    min_lon: Math.min(finished.start.lng, end.lng),
+    max_lat: Math.max(finished.start.lat, end.lat),
+    max_lon: Math.max(finished.start.lng, end.lng),
+  };
+
+  await fetch("/api/v1/areas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  // Existing stays only pick up the new area on a rebuild.
+  await fetch("/api/v1/reprocess", { method: "POST" });
+  await loadAreas();
+  await load();
+}
+
 function haversine(a, b) {
   const R = 6371008.8;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -419,6 +537,10 @@ el("show-raw").addEventListener("change", (e) => {
   state.showRaw = e.target.checked;
   load();
 });
+el("draw-area").addEventListener("click", () => {
+  if (drawing) stopDrawing();
+  else startDrawing();
+});
 
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
@@ -426,6 +548,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") el("next").click();
 });
 
+loadAreas();
 loadDevices().then(load).catch((err) => {
   el("empty").hidden = false;
   el("empty").textContent = `Could not load: ${err.message}`;

@@ -16,10 +16,11 @@ from .conftest import HOME, Track, offset_m
 OFFICE = offset_m(HOME, 3_000, 2_000)
 
 
-def make_area(conn, name, centre, radius_m):
+def make_area(conn, name, min_corner, max_corner):
     cursor = conn.execute(
-        "INSERT INTO areas (name, lat, lon, radius_m, created_at) VALUES (?, ?, ?, ?, ?)",
-        (name, centre[0], centre[1], radius_m, int(time.time())),
+        "INSERT INTO areas (name, min_lat, min_lon, max_lat, max_lon, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (name, min_corner[0], min_corner[1], max_corner[0], max_corner[1], int(time.time())),
     )
     return int(cursor.lastrowid)
 
@@ -28,7 +29,7 @@ def make_area(conn, name, centre, radius_m):
 
 
 def test_a_stay_inside_a_user_drawn_area_is_matched_to_it(conn):
-    area_id = make_area(conn, "Home", HOME, 150)
+    area_id = make_area(conn, "Home", offset_m(HOME, -150, -150), offset_m(HOME, 150, 150))
     Track().stay(hours=2).insert(conn)
     segment.rebuild(conn)
 
@@ -39,15 +40,15 @@ def test_a_stay_inside_a_user_drawn_area_is_matched_to_it(conn):
 
 def test_the_smallest_containing_area_wins(conn):
     """A specific area nested in a broader one should take precedence."""
-    make_area(conn, "Campus", HOME, 2_000)
-    desk = make_area(conn, "Desk", HOME, 50)
+    make_area(conn, "Campus", offset_m(HOME, -2_000, -2_000), offset_m(HOME, 2_000, 2_000))
+    desk = make_area(conn, "Desk", offset_m(HOME, -50, -50), offset_m(HOME, 50, 50))
 
     match = places.find_area(conn, *HOME)
     assert match["id"] == desk
 
 
 def test_a_stay_outside_every_area_matches_none(conn):
-    make_area(conn, "Home", HOME, 100)
+    make_area(conn, "Home", offset_m(HOME, -100, -100), offset_m(HOME, 100, 100))
     assert places.find_area(conn, *OFFICE) is None
 
 
@@ -61,7 +62,7 @@ def test_an_area_match_raises_confidence(conn):
     segment.rebuild(conn)
     without = conn.execute("SELECT confidence FROM stays").fetchone()["confidence"]
 
-    make_area(conn, "Home", HOME, 150)
+    make_area(conn, "Home", offset_m(HOME, -150, -150), offset_m(HOME, 150, 150))
     segment.rebuild(conn)
     with_area = conn.execute("SELECT confidence FROM stays").fetchone()["confidence"]
 
@@ -127,7 +128,7 @@ def test_naming_a_place_attaches_past_visits(conn):
 
 
 def test_attaching_ignores_stays_already_matched_to_an_area(conn):
-    make_area(conn, "Home", HOME, 150)
+    make_area(conn, "Home", offset_m(HOME, -150, -150), offset_m(HOME, 150, 150))
     Track().stay(hours=2).insert(conn)
     segment.rebuild(conn)
 

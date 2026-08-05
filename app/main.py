@@ -367,22 +367,29 @@ def get_areas(conn: sqlite3.Connection = Depends(get_conn)) -> list[dict[str, An
 def post_area(
     body: dict = Body(...), conn: sqlite3.Connection = Depends(get_conn)
 ) -> dict[str, Any]:
+    """Create a hand-drawn box area. Checked before any place lookup or
+    geocoding, so this is the cheapest and least ambiguous way to name where
+    you are.
+    """
     import time
 
-    for field in ("name", "lat", "lon", "radius_m"):
+    for field in ("name", "min_lat", "min_lon", "max_lat", "max_lon"):
         if field not in body:
             raise HTTPException(status_code=400, detail=f"'{field}' is required")
 
+    min_lat, min_lon = float(body["min_lat"]), float(body["min_lon"])
+    max_lat, max_lon = float(body["max_lat"]), float(body["max_lon"])
+    if min_lat >= max_lat or min_lon >= max_lon:
+        raise HTTPException(
+            status_code=400, detail="min_lat/min_lon must be less than max_lat/max_lon"
+        )
+
     cursor = conn.execute(
-        "INSERT INTO areas (name, lat, lon, radius_m, created_at) VALUES (?, ?, ?, ?, ?)",
-        (
-            str(body["name"]),
-            float(body["lat"]),
-            float(body["lon"]),
-            float(body["radius_m"]),
-            int(time.time()),
-        ),
+        "INSERT INTO areas (name, min_lat, min_lon, max_lat, max_lon, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (str(body["name"]), min_lat, min_lon, max_lat, max_lon, int(time.time())),
     )
+
     return dict(
         conn.execute("SELECT * FROM areas WHERE id = ?", (cursor.lastrowid,)).fetchone()
     )

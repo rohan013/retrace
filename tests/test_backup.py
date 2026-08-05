@@ -68,7 +68,8 @@ def test_uncheckpointed_writes_are_in_the_snapshot(conn, db_path, tmp_path):
 def test_a_restored_snapshot_holds_every_table(conn, db_path, tmp_path):
     Track().stay(hours=2).insert(conn)
     conn.execute(
-        "INSERT INTO areas (name, lat, lon, radius_m, created_at) VALUES ('Home', 51.5, -0.1, 100, 0)"
+        "INSERT INTO areas (name, min_lat, min_lon, max_lat, max_lon, created_at) "
+        "VALUES ('Home', 51.49, -0.11, 51.51, -0.09, 0)"
     )
 
     target = tmp_path / "snap.db"

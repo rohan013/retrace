@@ -69,10 +69,12 @@ CREATE INDEX places_latlon ON places(lat, lon);
 CREATE TABLE areas (
     id         INTEGER PRIMARY KEY,
     name       TEXT    NOT NULL,
-    lat        REAL    NOT NULL,
-    lon        REAL    NOT NULL,
-    radius_m   REAL    NOT NULL,
-    created_at INTEGER NOT NULL
+    min_lat    REAL    NOT NULL,
+    min_lon    REAL    NOT NULL,
+    max_lat    REAL    NOT NULL,
+    max_lon    REAL    NOT NULL,
+    created_at INTEGER NOT NULL,
+    CHECK (min_lat < max_lat AND min_lon < max_lon)
 );
 
 CREATE TABLE stays (

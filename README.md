@@ -191,14 +191,14 @@ Open `https://tracker.<your-domain>/`.
   a stay is real or an artefact of bad reception, and it is exactly what a tracker
   that discards raw data cannot offer.
 
-**Draw areas before you bother with geocoding.** Ten circles — home, work, gym,
+**Draw areas before you bother with geocoding.** Ten boxes — home, work, gym,
 parents — name about 80 % of your stay-time with no external calls and no
 ambiguity:
 
 ```bash
 curl -X POST https://tracker.<your-domain>/api/v1/areas \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Home","lat":51.5074,"lon":-0.1278,"radius_m":120}'
+  -d '{"name":"Home","min_lat":51.5064,"min_lon":-0.1288,"max_lat":51.5084,"max_lon":-0.1268}'
 ```
 
 Reverse geocoding is **off by default** (`GEOCODING_ENABLED`). It sends your

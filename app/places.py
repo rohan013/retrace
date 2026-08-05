@@ -2,7 +2,7 @@
 
 Resolution runs cheapest-first, and the ordering is the whole design:
 
-1. **User-drawn areas.** Ten circles — home, work, gym, parents — name the large
+1. **User-drawn areas.** Ten boxes — home, work, gym, parents — name the large
    majority of anyone's stay-time with no network call and no ambiguity. They are
    checked first because a hand-drawn boundary is better evidence than anything a
    geocoder can infer.
@@ -38,17 +38,20 @@ NO_MATCH_SCORE = 0.0
 
 
 def find_area(conn: sqlite3.Connection, lat: float, lon: float) -> sqlite3.Row | None:
-    """The user-drawn circle containing this point, smallest first.
+    """The user-drawn box containing this point, smallest first.
 
     Smallest wins so a specific area nested inside a broader one — a desk inside
-    an office — takes precedence.
+    an office — takes precedence. Ranking by degree-area rather than square
+    metres is exact here: every candidate contains the same query point, so they
+    sit at the same latitude, and degree-area orders them identically.
     """
     best = None
-    best_radius = float("inf")
+    best_size = float("inf")
     for area in conn.execute("SELECT * FROM areas"):
-        if distance_m((lat, lon), (area["lat"], area["lon"])) <= area["radius_m"]:
-            if area["radius_m"] < best_radius:
-                best, best_radius = area, area["radius_m"]
+        if area["min_lat"] <= lat <= area["max_lat"] and area["min_lon"] <= lon <= area["max_lon"]:
+            size = (area["max_lat"] - area["min_lat"]) * (area["max_lon"] - area["min_lon"])
+            if size < best_size:
+                best, best_size = area, size
     return best
 
 

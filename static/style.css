@@ -6,6 +6,7 @@
   --line: #e3e6ea;
   --accent: #2563eb;
   --stay: #7c3aed;
+  --area: #0d9488;
   --warn: #b45309;
   --radius: 8px;
 }
@@ -19,6 +20,7 @@
     --line: #262c36;
     --accent: #58a6ff;
     --stay: #a78bfa;
+    --area: #2dd4bf;
     --warn: #d29922;
   }
 }
@@ -100,6 +102,18 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 
 .toggle { display: flex; align-items: center; gap: 5px; color: var(--muted); cursor: pointer; }
+
+#area-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+#draw-area.active { border-color: var(--area); color: var(--area); }
+
+.popup-delete { color: var(--warn); font-size: 12px; }
 
 /* -- summary -- */
 
