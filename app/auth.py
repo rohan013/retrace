@@ -1,12 +1,18 @@
 """Ingest authentication.
 
 The token can arrive three ways because recorder apps differ in what they can
-set. OwnTracks iOS can send HTTP Basic credentials but not arbitrary headers;
-other clients can only put a token in the URL. All three are the same secret.
+set. Some clients can only put a token in the URL; OwnTracks sends HTTP Basic
+credentials. All three are the same secret.
 
-The web UI is not protected here — Cloudflare Access sits in front of it. The
-ingest path is deliberately excluded from Access (a phone cannot complete an SSO
-login) and is protected by this token instead.
+The web UI is not protected here — Cloudflare Access sits in front of it with an
+Allow policy. The ingest path can't use that same policy (a phone can't complete
+an SSO login), so it sits behind its own Access application with a Service Auth
+policy instead — a machine credential (`CF-Access-Client-Id` /
+`CF-Access-Client-Secret`) that Cloudflare checks at the edge before a request
+ever reaches this process. This token is the layer behind that: Service Auth
+stops a stranger who finds the URL, this stops anything that reaches the app
+directly regardless of how — including a future Cloudflare-side
+misconfiguration. The two checks are deliberately independent.
 """
 
 import base64

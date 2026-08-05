@@ -128,11 +128,9 @@ def test_a_midnight_crossing_trip_splits_its_distance(client, conn):
 
 
 def test_the_ingest_path_refuses_to_read_anything_back(client, conn):
-    """The one path Cloudflare Access bypasses must never serve data.
-
-    Access policies match on path, not method, so the Bypass rule that lets the
-    phone POST without SSO would expose a GET on the same path to the whole
-    internet. Raw fixes are read from /api/v1/points, which Access protects.
+    """The one path guarded by a machine credential instead of a human login
+    must never serve data back out, so a leaked or shared credential can only
+    ever be used to write, never to read the location history.
     """
     seed(client, conn)
 

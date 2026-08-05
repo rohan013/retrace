@@ -5,14 +5,16 @@ swapping the phone app never means reconfiguring the phone's URL. Which recorder
 sent a payload is detected from its shape.
 
 Only the ingest route is authenticated here. Everything else sits behind
-Cloudflare Access, which cannot protect ingest because a phone has no way to
-complete an SSO login.
+Cloudflare Access with a human login policy. Ingest can't use that — a phone has
+no way to complete an SSO login — so it sits behind a separate Access
+application with a Service Auth policy instead: a machine credential Cloudflare
+checks at the edge in place of an identity.
 
-That split is why `/api/v1/locations` accepts POST and nothing else, and why raw
-fixes are read back from `/api/v1/points` instead. Access policies match on path,
-not method, so the Bypass rule that lets the phone post would equally expose a GET
-on the same path — the whole location history, to anyone who guessed the URL.
-Keeping the bypassed path write-only means the token is the only thing behind it.
+That's also why `/api/v1/locations` accepts POST and nothing else, with raw
+fixes read back from `/api/v1/points` instead: the Service Auth credential is
+meant to travel with write-only clients (a phone, an automation), so keeping the
+path write-only means a leaked or shared one can never be used to read the
+location history back out.
 """
 
 import asyncio

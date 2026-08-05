@@ -52,12 +52,13 @@ python3 -c "import secrets; print('INGEST_TOKEN=' + secrets.token_urlsafe(32))"
 Run it:
 
 ```bash
-sudo cp deploy/tracker.service deploy/tracker-backup.service deploy/tracker-backup.timer \
-        /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now tracker.service tracker-backup.timer
-systemctl status tracker.service
+deploy/install.sh
 ```
+
+Checks `.env` and the venv are actually set up, then installs and starts
+`tracker.service` and `tracker-backup.timer`. Safe to re-run any time the unit
+files change. `deploy/uninstall.sh` stops and removes them again, leaving the
+repo, `.env` and `data/` untouched.
 
 It listens on `127.0.0.1:8420` only. Nothing reaches it except through the tunnel.
 
@@ -81,42 +82,57 @@ Zero Trust → **Networks → Tunnels** → your tunnel → **Public Hostname** 
 
 ### 2. Protect the UI
 
-Zero Trust → **Access → Applications** → Add → Self-hosted:
+**Zero Trust → Access controls → Applications → Create new application →
+Self-hosted and private → Add public hostname:**
 
 | | |
 |---|---|
-| Application domain | `tracker.<your-domain>` |
+| Domain | `tracker.<your-domain>` (no path) |
 | Policy | **Allow**, Include → Emails → `rohan9513@gmail.com` |
 
-### 3. Let the phone in — and only for writing
+### 3. Let the phone in — with its own edge-enforced credential
 
-Your phone cannot complete an SSO login, so the ingest path needs a second
-application that skips Access:
+Your phone cannot complete an SSO login, so it authenticates with a **Service
+Auth** policy instead of a human one. It's still edge-enforced — Cloudflare
+rejects a request missing the right credential before it ever reaches your
+tunnel — just checking a machine token instead of an identity:
 
-| | |
-|---|---|
-| Application domain | `tracker.<your-domain>` **path** `/api/v1/locations` |
-| Policy | **Bypass**, Include → Everyone |
+1. **Access controls → Service credentials → Service Tokens → Create Service
+   Token.** Name it per device (`tracker-phone`, and later `tracker-macbook`,
+   `tracker-shortcuts`, …) — separate tokens mean a lost device revokes cleanly
+   without touching the others. Save the Client ID and Client Secret; the secret
+   is shown once.
+2. **Create new application** (same flow as above), domain `tracker.<your-domain>`
+   **path** `/api/v1/locations` → policy **Service Auth**, Include → Service
+   Token → the one(s) you created.
+3. The client sends the credential as two headers, `CF-Access-Client-Id` and
+   `CF-Access-Client-Secret` — see the OwnTracks `httpHeaders` field below.
 
-**Getting this wrong is the most likely cause of silent tracking failure** — the
-phone gets an SSO redirect instead of a 200, drops the fixes it was holding, and
-nothing tells you.
+**`INGEST_TOKEN` stays on too**, as an independent second check: Service Auth
+stops a stranger who finds the URL; the app's own token stops anything that
+reaches the app directly, including a future Cloudflare-side misconfiguration.
+Cheap to keep, and it's already built.
 
-> **Why the API is shaped the way it is.** Access policies match on *path*, not on
-> method. A Bypass rule on `/api/v1/locations` therefore exempts every method on
-> that path — so if the same path also served reads, this step would publish your
-> entire location history to anyone who guessed the URL. It doesn't:
-> `/api/v1/locations` accepts `POST` and nothing else, and returns 405 to a GET.
-> Raw fixes are read back from `/api/v1/points`, which stays behind Access with
-> everything else. The bypassed path is defended by the ingest token alone, which
-> is why that token is the one secret worth treating carefully.
+> **Why the API is shaped the way it is.** Even with Service Auth, matching stays
+> path-based, not method-based — so `/api/v1/locations` accepts `POST` and
+> nothing else, and returns 405 to a GET, rather than trusting the Access layer
+> alone to keep reads out. Raw fixes are read back from `/api/v1/points`, gated
+> by the Allow policy like everything else.
 
 Check it from anywhere:
 
 ```bash
-curl -i https://tracker.<your-domain>/api/v1/locations          # 405, no SSO redirect
-curl -i https://tracker.<your-domain>/api/v1/points             # SSO redirect
+# No credentials — Cloudflare's own 403, never reaches your server
+curl -i https://tracker.<your-domain>/api/v1/locations -X POST -d '{}'
+
+# Service token headers but no INGEST_TOKEN — reaches the app, gets its 401
+curl -i https://tracker.<your-domain>/api/v1/locations -X POST -d '{}' \
+  -H "CF-Access-Client-Id: <client_id>" \
+  -H "CF-Access-Client-Secret: <client_secret>"
 ```
+
+`journalctl -fu tracker` should show nothing for the first request (Cloudflare
+never forwarded it) and a `401` for the second.
 
 ---
 
@@ -129,11 +145,14 @@ App Store → OwnTracks → Settings:
 | Mode | **HTTP** |
 | URL | `https://tracker.<your-domain>/api/v1/locations` |
 | Authentication | on |
-| User / Device ID | `phone` (anything; it becomes the device name) |
+| Username | anything, e.g. `phone` — the server ignores this field |
 | Password | your `INGEST_TOKEN` |
-| Monitoring | **Move** |
+| httpHeaders | `CF-Access-Client-Id:<id>\nCF-Access-Client-Secret:<secret>` — one line, literal `\n` between the two (this field doesn't accept a real line break) |
+| DeviceID | anything, no spaces, e.g. `phone` |
+| Monitoring | `2` — the field is a raw integer: `-1` Quiet, `0` Manual, `1` Significant, `2` **Move**. `1` looks plausible but is the wrong mode; it uses iOS's coarse significant-change API instead of the displacement/interval settings below |
 | locatorDisplacement | `25` m |
 | locatorInterval | `180` s |
+| Passphrase | **leave empty.** If set, OwnTracks encrypts every payload including location fixes as `{"_type":"encrypted",...}`. The server doesn't decrypt — encryption on top of HTTPS + Service Auth + the ingest token is redundant — so it silently discards them as a recognised-but-ignored type ([`app/providers/owntracks.py`](app/providers/owntracks.py)). You get 200s and nothing stored, no error anywhere |
 
 Then, in **iOS Settings → OwnTracks**:
 
@@ -344,11 +363,20 @@ to its start, a teleport outlier mid-drive, two devices interleaved).
 
 ## Troubleshooting
 
-**No data arriving.** `journalctl -fu tracker` while you move around. Nothing at
-all means Cloudflare — check the Bypass application is on the exact path
-`/api/v1/locations` and that a `curl -i https://tracker.<your-domain>/api/v1/locations`
-returns 405 rather than an SSO redirect. 401 in the log means the password in
-OwnTracks does not match `INGEST_TOKEN`.
+**No data arriving.** `journalctl -fu tracker` while you move around.
+
+- **Nothing at all in the log** means the request never reached the app —
+  Cloudflare rejected it first. Check the Service Auth application is on the
+  exact path `/api/v1/locations`, and that the two `CF-Access-Client-*` headers
+  in OwnTracks' `httpHeaders` field match the service token exactly (that field
+  is single-line — see the setup table above; a real line break where a literal
+  `\n` belongs will break it silently).
+- **A `401` in the log** means the request reached the app but the password in
+  OwnTracks doesn't match `INGEST_TOKEN`.
+- **A `200` in the log but no new row in the database** means the payload
+  parsed but carried no location — almost always OwnTracks' Passphrase field
+  being set, which wraps every message as encrypted and the server correctly
+  discards it. Clear that field.
 
 **Gaps in the day.** Usually iOS. Check Low Power Mode, that Location is *Always*
 and *Precise*, that Background App Refresh is on, and that the app was not
