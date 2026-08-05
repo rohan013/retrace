@@ -25,6 +25,17 @@ BASE_TS = 1780304400
 # Central London, arbitrary but real enough that timezone lookups behave.
 HOME = (51.5074, -0.1278)
 
+# Every table `db.SCHEMA` creates, listed independently of it so that dropping
+# one has to be a deliberate edit here too.
+TABLES = {"points", "places", "areas", "stays", "trips", "stay_notes", "events", "state"}
+
+
+def table_names(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    return {row[0] for row in rows}
+
 
 def offset_m(origin: tuple[float, float], north_m: float, east_m: float) -> tuple[float, float]:
     """Shift a coordinate by a distance in metres."""

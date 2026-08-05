@@ -19,7 +19,7 @@ Python 3.12, FastAPI, SQLite, Leaflet. No Node, no Docker, no build step.
 
 ```
 app/          the service
-  db.py         schema and migrations
+  db.py         schema and connections
   ingest.py     accepting fixes
   quality.py    flagging bad ones (never deleting them)
   segment.py    turning fixes into stays and trips
@@ -302,6 +302,36 @@ anything irreplaceable.
 
 ---
 
+## Changing the schema
+
+`app/db.py` holds the schema as a single `SCHEMA` string, run once against a
+database with no tables in it. Changing a database that already holds data is a
+manual step during a restart: edit `SCHEMA`, then apply the same change by hand.
+
+```bash
+sudo systemctl stop tracker
+.venv/bin/python scripts/backup.py
+sqlite3 data/tracker.db "ALTER TABLE stays ADD COLUMN mood TEXT"
+sudo systemctl start tracker
+```
+
+Adding a column takes a second. A type change, a new CHECK or a column reorder
+needs the create-copy-drop-rename dance instead, in one transaction:
+
+```sql
+BEGIN;
+CREATE TABLE areas_new (...);
+INSERT INTO areas_new SELECT id, name, ... FROM areas;
+DROP TABLE areas;
+ALTER TABLE areas_new RENAME TO areas;
+COMMIT;
+```
+
+The service is the only writer, so with it stopped the database is yours alone.
+Take the backup first: it is the rollback.
+
+---
+
 ## How it decides things
 
 ```
@@ -395,5 +425,5 @@ Lower either.
 ## Not built yet
 
 The `events` table and `trips.mode` exist and are empty — they are where passive
-sources (iOS Shortcuts, email receipts, calendar) attach later, without a schema
-change. There is no activity classification, no Takeout import, no multi-user.
+sources (iOS Shortcuts, email receipts, calendar) attach later, needing an ingest
+route each. There is no activity classification, no Takeout import, no multi-user.

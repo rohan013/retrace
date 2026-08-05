@@ -14,9 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app import db
-
-from .conftest import HOME, Track, offset_m
+from .conftest import HOME, TABLES, Track, offset_m, table_names
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 
@@ -78,8 +76,8 @@ def test_a_restored_snapshot_holds_every_table(conn, db_path, tmp_path):
     restored = sqlite3.connect(target)
     assert restored.execute("SELECT COUNT(*) FROM points").fetchone()[0] > 0
     assert restored.execute("SELECT name FROM areas").fetchone()[0] == "Home"
-    # The schema version travels with the data, or a restore cannot be migrated.
-    assert restored.execute("PRAGMA user_version").fetchone()[0] == len(db.MIGRATIONS)
+    # The schema travels with the data, so a restore is ready to serve as it is.
+    assert table_names(restored) == TABLES
 
 
 def test_an_unreadable_snapshot_is_refused_rather_than_rotated_in(conn, db_path, tmp_path):

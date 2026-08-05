@@ -1,4 +1,9 @@
-"""SQLite schema, migrations and connection handling.
+"""SQLite schema and connection handling.
+
+`SCHEMA` below is the whole schema, and `init_db` runs it against a database
+that has no tables yet. A schema change means editing `SCHEMA`, stopping the
+service, applying the matching ALTER by hand and starting it again — see
+"Changing the schema" in the README.
 
 Design notes that the schema encodes deliberately:
 
@@ -20,7 +25,7 @@ from typing import Iterator
 
 from . import config
 
-SCHEMA_V1 = """
+SCHEMA = """
 CREATE TABLE points (
     id                INTEGER PRIMARY KEY,
     device            TEXT    NOT NULL,
@@ -133,8 +138,8 @@ CREATE TABLE stay_notes (
 CREATE UNIQUE INDEX stay_notes_device_anchor ON stay_notes(device, anchor_ts);
 
 -- The extension point for later passive sources (Shortcuts, Mac activity,
--- payments). Deliberately schemaless in `payload` so a new source needs an
--- ingest route but no migration. Unused for now.
+-- payments). Deliberately schemaless in `payload`, so a new source needs an
+-- ingest route and nothing else. Unused for now.
 CREATE TABLE events (
     id         INTEGER PRIMARY KEY,
     ts         INTEGER NOT NULL,
@@ -157,26 +162,29 @@ CREATE TABLE state (
 );
 """
 
-MIGRATIONS: list[str] = [SCHEMA_V1]
-
-
-def _apply_migrations(conn: sqlite3.Connection) -> None:
-    current = conn.execute("PRAGMA user_version").fetchone()[0]
-    for version in range(current, len(MIGRATIONS)):
-        conn.executescript(MIGRATIONS[version])
-        conn.execute(f"PRAGMA user_version = {version + 1}")
-    conn.commit()
-
 
 def init_db(path: str | None = None) -> None:
-    """Create the database and bring it up to the latest schema version."""
+    """Create the database and its tables if they are not there yet.
+
+    Called on every process start, so an already-populated database is left
+    exactly as it is.
+    """
     target = Path(path or config.DB_PATH)
     target.parent.mkdir(parents=True, exist_ok=True)
     conn = _raw_connect(str(target))
     try:
-        _apply_migrations(conn)
+        if _is_empty(conn):
+            conn.executescript(SCHEMA)
+        conn.commit()
     finally:
         conn.close()
+
+
+def _is_empty(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchone()
+    return row[0] == 0
 
 
 def _raw_connect(path: str) -> sqlite3.Connection:
