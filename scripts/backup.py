@@ -10,7 +10,7 @@ Deliberately stdlib-only: `sqlite3.Connection.backup()` is the same online backu
 the sqlite3 CLI performs, so the backup does not depend on an apt package being
 present, and it runs under the same interpreter as the app.
 
-Run by tracker-backup.timer. Safe to run by hand at any time.
+Run by retrace-backup.timer. Safe to run by hand at any time.
 
     scripts/backup.py [--db data/tracker.db] [--dest data/backups]
 """

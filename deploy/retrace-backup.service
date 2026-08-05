@@ -1,5 +1,5 @@
 [Unit]
-Description=Back up the tracker database
+Description=Back up the retrace database
 Documentation=file:///home/rohan/tracker/README.md
 
 [Service]

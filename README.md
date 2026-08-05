@@ -1,4 +1,4 @@
-# tracker
+# retrace
 
 A self-hosted replacement for Google Maps Timeline, running on your own server,
 reachable through your existing Cloudflare Tunnel.
@@ -56,7 +56,7 @@ deploy/install.sh
 ```
 
 Checks `.env` and the venv are actually set up, then installs and starts
-`tracker.service` and `tracker-backup.timer`. Safe to re-run any time the unit
+`retrace.service` and `retrace-backup.timer`. Safe to re-run any time the unit
 files change. `deploy/uninstall.sh` stops and removes them again, leaving the
 repo, `.env` and `data/` untouched.
 
@@ -88,7 +88,7 @@ Self-hosted and private → Add public hostname:**
 | | |
 |---|---|
 | Domain | `tracker.<your-domain>` (no path) |
-| Policy | **Allow**, Include → Emails → `rohan9513@gmail.com` |
+| Policy | **Allow**, Include → Emails → your email |
 
 ### 3. Let the phone in — with its own edge-enforced credential
 
@@ -131,7 +131,7 @@ curl -i https://tracker.<your-domain>/api/v1/locations -X POST -d '{}' \
   -H "CF-Access-Client-Secret: <client_secret>"
 ```
 
-`journalctl -fu tracker` should show nothing for the first request (Cloudflare
+`journalctl -fu retrace` should show nothing for the first request (Cloudflare
 never forwarded it) and a `401` for the second.
 
 ---
@@ -240,7 +240,7 @@ Every threshold is in `.env`. Change one, rebuild, compare. Raw fixes are never
 touched by a rebuild and neither are your names and notes:
 
 ```bash
-sudo systemctl restart tracker
+sudo systemctl restart retrace
 curl -X POST https://tracker.<your-domain>/api/v1/reprocess
 ```
 
@@ -273,7 +273,7 @@ INGEST_TOKEN=$(grep ^INGEST_TOKEN .env | cut -d= -f2) \
 
 ## Backups
 
-`tracker-backup.timer` runs nightly at 04:17 UTC (21:17 local), keeping 7 daily and 4 weekly
+`retrace-backup.timer` runs nightly at 04:17 UTC (21:17 local), keeping 7 daily and 4 weekly
 gzipped snapshots in `data/backups/`. `Persistent=yes`, so a machine that was off
 at 04:17 backs up when it comes back.
 
@@ -285,15 +285,15 @@ to displace an older one.
 
 ```bash
 .venv/bin/python scripts/backup.py     # run it now
-systemctl list-timers tracker-backup   # when it next fires
+systemctl list-timers retrace-backup   # when it next fires
 ```
 
 Restore:
 
 ```bash
-sudo systemctl stop tracker
+sudo systemctl stop retrace
 gunzip -c data/backups/daily/tracker-20260804.db.gz > data/tracker.db
-sudo systemctl start tracker
+sudo systemctl start retrace
 ```
 
 The derived layer needs no backup at all — `POST /api/v1/reprocess` rebuilds all
@@ -309,10 +309,10 @@ database with no tables in it. Changing a database that already holds data is a
 manual step during a restart: edit `SCHEMA`, then apply the same change by hand.
 
 ```bash
-sudo systemctl stop tracker
+sudo systemctl stop retrace
 .venv/bin/python scripts/backup.py
 sqlite3 data/tracker.db "ALTER TABLE stays ADD COLUMN mood TEXT"
-sudo systemctl start tracker
+sudo systemctl start retrace
 ```
 
 Adding a column takes a second. A type change, a new CHECK or a column reorder
@@ -393,7 +393,7 @@ to its start, a teleport outlier mid-drive, two devices interleaved).
 
 ## Troubleshooting
 
-**No data arriving.** `journalctl -fu tracker` while you move around.
+**No data arriving.** `journalctl -fu retrace` while you move around.
 
 - **Nothing at all in the log** means the request never reached the app —
   Cloudflare rejected it first. Check the Service Auth application is on the

@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
             await task
 
 
-app = FastAPI(title="tracker", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="retrace", version="0.1.0", lifespan=lifespan)
 
 
 def get_conn() -> Iterator[sqlite3.Connection]:

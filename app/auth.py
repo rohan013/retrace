@@ -59,5 +59,5 @@ def require_ingest_token(request: Request, token: str | None = Query(default=Non
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing ingest token",
-            headers={"WWW-Authenticate": 'Basic realm="tracker"'},
+            headers={"WWW-Authenticate": 'Basic realm="retrace"'},
         )

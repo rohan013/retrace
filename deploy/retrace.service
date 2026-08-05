@@ -1,5 +1,5 @@
 [Unit]
-Description=Personal location tracker
+Description=retrace — personal location history
 Documentation=file:///home/rohan/tracker/README.md
 After=network-online.target
 Wants=network-online.target

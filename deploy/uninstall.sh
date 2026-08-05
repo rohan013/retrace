@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop and remove the tracker systemd units. Leaves the repo, .env and data/
+# Stop and remove the retrace systemd units. Leaves the repo, .env and data/
 # untouched — this only undoes what install.sh did to the system.
 #
 #   deploy/uninstall.sh
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 UNIT_DIR=/etc/systemd/system
-UNITS=(tracker.service tracker-backup.service tracker-backup.timer)
+UNITS=(retrace.service retrace-backup.service retrace-backup.timer)
 
 echo "== stopping =="
 sudo systemctl stop "${UNITS[@]}" 2>/dev/null || true

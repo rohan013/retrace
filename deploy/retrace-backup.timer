@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly tracker database backup
+Description=Nightly retrace database backup
 
 [Timer]
 # Pinned to UTC: the archives are stamped with the UTC date, and a timer on local

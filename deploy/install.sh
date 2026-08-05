@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install and start the tracker systemd units. Safe to re-run: copying the same
+# Install and start the retrace systemd units. Safe to re-run: copying the same
 # unit files and re-enabling an already-enabled service are both no-ops, and any
 # unit content changes are picked up by daemon-reload + restart.
 #
@@ -35,18 +35,18 @@ fi
 mkdir -p "$ROOT/data"
 
 echo "== installing unit files (sudo) =="
-sudo cp "$ROOT"/deploy/tracker.service "$ROOT"/deploy/tracker-backup.service \
-        "$ROOT"/deploy/tracker-backup.timer "$UNIT_DIR/"
+sudo cp "$ROOT"/deploy/retrace.service "$ROOT"/deploy/retrace-backup.service \
+        "$ROOT"/deploy/retrace-backup.timer "$UNIT_DIR/"
 sudo systemctl daemon-reload
 
 echo "== enabling and starting =="
-sudo systemctl enable --now tracker.service tracker-backup.timer
+sudo systemctl enable --now retrace.service retrace-backup.timer
 
 echo
 echo "== status =="
-systemctl --no-pager status tracker.service
+systemctl --no-pager status retrace.service
 echo
-systemctl list-timers tracker-backup.timer --no-pager
+systemctl list-timers retrace-backup.timer --no-pager
 
 echo
-echo "done. tail logs with: journalctl -fu tracker"
+echo "done. tail logs with: journalctl -fu retrace"
