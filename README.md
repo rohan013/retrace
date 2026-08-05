@@ -178,14 +178,62 @@ that is roughly **1.1 GB/year** with full raw payloads retained.
 
 ---
 
+## iPhone — Shortcuts
+
+Personal Automations for device-activity signals, posted to the same ingest
+path as OwnTracks. Shortcuts app → **Automation** tab → **+** → pick a
+trigger → **Get Contents of URL**:
+
+| Field | Value |
+|---|---|
+| URL | `https://tracker.<your-domain>/api/v1/locations?format=shortcuts` |
+| Method | `POST` |
+| Headers | `Authorization: Bearer <INGEST_TOKEN>`, `CF-Access-Client-Id: <id>`, `CF-Access-Client-Secret: <secret>`, `Content-Type: application/json` |
+| Request Body | JSON, built from a Dictionary — see the automations below |
+
+Turn off **Ask Before Running** and **Notify When Run** on each one so it
+fires silently.
+
+Each signal is a start/end pair, one automation per half; the server pairs
+sequential pings into a range keyed on `(device, kind, subject)`:
+
+| Automation | `kind` | `value` | `subject` |
+|---|---|---|---|
+| App → Is Opened / Is Closed (one pair per app you track) | `app` | `open` / `close` | the app's name |
+| Wi-Fi → Connects / Disconnects (one pair per network you track) | `wifi` | `connected` / `disconnected` | the SSID |
+| CarPlay → Connects / Disconnects | `carplay` | `connected` / `disconnected` | — |
+
+Example body for "Spotify → Is Opened":
+
+```json
+{"kind": "app", "subject": "Spotify", "value": "open", "device": "iphone"}
+```
+
+`device` identifies which phone sent it, so the day view can tell two
+devices' activity apart when they overlap. `ts` is optional — omitted, the
+server uses its own receive time, which is accurate enough for this kind of
+log.
+
+A signal missing its other half shows in the day view open-ended (still
+connected/open) or as a flagged point with no duration (a close with no
+matching open) — worth checking occasionally to see how often an automation
+fails to fire its other half.
+
+---
+
 ## Using it
 
 Open `https://tracker.<your-domain>/`.
 
 - **Arrow keys** or the date field move between days.
-- **Click** a timeline entry to focus it on the map; **double-click** to name the
-  place. Naming is permanent and applies to every other stay at that spot, past
-  and future — you name somewhere once.
+- The sidebar is two lanes on a shared time axis: **Place** (stays and trips)
+  and **Events** (device activity from Shortcuts). **Click** a Place block to
+  focus it on the map — events appear only in the Events lane; **double-click**
+  a stay to name the place. Naming is permanent and applies to every other stay
+  at that spot, past and future — you name somewhere once.
+- An event that spans a place boundary — still on a call as you start driving,
+  say — draws as one continuous block crossing it, keeping its own true start
+  and end times.
 - **Raw fixes** toggles every individual fix with its accuracy circle, flagged
   ones in red. This is the feature, not a debug view: it is how you judge whether
   a stay is real or an artefact of bad reception, and it is exactly what a tracker
@@ -216,9 +264,10 @@ is detected from its shape.
 |---|---|
 | `POST /api/v1/locations` | ingest — **the only write-open path**, token required |
 | `GET /api/v1/points` | raw fixes, keyset-paginated by `since_id` |
-| `GET /api/v1/days/{date}` | a day assembled: stays and trips interleaved, plus a summary |
+| `GET /api/v1/days/{date}` | a day assembled: stays and trips on a Place lane, events paired into ranges on an Events lane, plus a summary |
 | `GET /api/v1/stays` · `PATCH /api/v1/stays/{id}` | query, name, annotate |
 | `GET /api/v1/trips` | |
+| `GET /api/v1/events` | raw event pings, unpaired — see `/api/v1/days` for the paired view |
 | `GET POST PATCH DELETE /api/v1/places` | |
 | `GET POST DELETE /api/v1/areas` | |
 | `GET /api/v1/devices` · `GET /api/v1/stats` | |
@@ -302,8 +351,6 @@ anything irreplaceable.
 
 ---
 
-## Changing the schema
-
 `app/db.py` holds the schema as a single `SCHEMA` string, run once against a
 database with no tables in it. Changing a database that already holds data is a
 manual step during a restart: edit `SCHEMA`, then apply the same change by hand.
@@ -311,12 +358,21 @@ manual step during a restart: edit `SCHEMA`, then apply the same change by hand.
 ```bash
 sudo systemctl stop retrace
 .venv/bin/python scripts/backup.py
-sqlite3 data/tracker.db "ALTER TABLE stays ADD COLUMN mood TEXT"
+sqlite3 data/tracker.db <<'SQL'
+ALTER TABLE events ADD COLUMN device TEXT;
+DROP INDEX events_dedup;
+CREATE UNIQUE INDEX events_dedup ON events(source, ts, kind, IFNULL(subject, ''), IFNULL(device, ''));
+CREATE INDEX events_device_ts ON events(device, ts);
+SQL
 sudo systemctl start retrace
 ```
 
-Adding a column takes a second. A type change, a new CHECK or a column reorder
-needs the create-copy-drop-rename dance instead, in one transaction:
+That's the exact change `events.device` needed when it was added — a live
+example as much as a template. `ALTER TABLE ... ADD COLUMN` is safe against a
+running database: it just adds the column, and existing rows get `NULL`.
+
+A type change, a new CHECK or a column reorder needs the create-copy-drop-rename
+dance instead, in one transaction:
 
 ```sql
 BEGIN;
@@ -340,8 +396,6 @@ points          raw fixes, immutable, never deleted, never downsampled
 stays + trips   derived; delete-and-rebuild over a window, idempotent
   ↓
 places          user edits live HERE, and a rebuild never touches them
-  ↓
-events          empty for now — the extension point
 ```
 
 Three rules hold the whole design together:
@@ -373,6 +427,12 @@ guessing.
 
 Timezone is resolved **per stay from its own coordinates**, not from one account
 setting, so a travel day puts each stay on the correct local date.
+
+`events` sits outside this pipeline — a flat, independently-sourced log
+(OwnTracks geofence transitions, Shortcuts device signals) with no rebuild
+step of its own. The day view pairs its start/end pings into ranges at read
+time, the same way `timeline.py` already assembles stays and trips into a
+day: a presentation step, not a stored derivation.
 
 ---
 
@@ -424,6 +484,5 @@ Lower either.
 
 ## Not built yet
 
-The `events` table and `trips.mode` exist and are empty — they are where passive
-sources (iOS Shortcuts, email receipts, calendar) attach later, needing an ingest
-route each. There is no activity classification, no Takeout import, no multi-user.
+`trips.mode` exists and is unused. Activity classification, a Google Takeout
+import, and multi-user support are all out of scope for now.

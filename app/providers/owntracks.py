@@ -126,6 +126,7 @@ def _parse_transition(payload: dict, device: str) -> ParsedEvent | None:
         lat=coerce_float(payload.get("lat")),
         lon=coerce_float(payload.get("lon")),
         value_text=payload.get("event"),
+        device=device,
         payload=json.dumps(
             {"device": device, **payload}, separators=(",", ":"), sort_keys=True
         ),

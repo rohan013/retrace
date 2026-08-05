@@ -10,9 +10,10 @@ from typing import Any
 from .base import IngestResult, ParsedEvent, ParsedPoint, ParseResult, Provider
 from .generic import GenericProvider
 from .owntracks import OwnTracksProvider
+from .shortcuts import ShortcutsProvider
 
 # Order matters: the most specific detector wins.
-PROVIDERS: list[Provider] = [OwnTracksProvider(), GenericProvider()]
+PROVIDERS: list[Provider] = [OwnTracksProvider(), ShortcutsProvider(), GenericProvider()]
 
 _BY_NAME = {p.name: p for p in PROVIDERS}
 

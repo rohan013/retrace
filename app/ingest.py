@@ -48,8 +48,8 @@ _INSERT_POINT = (
 
 _INSERT_EVENT = """
 INSERT OR IGNORE INTO events
-    (ts, kind, source, subject, lat, lon, value_num, value_text, payload, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (ts, kind, source, subject, device, lat, lon, value_num, value_text, payload, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -162,6 +162,7 @@ def _event_row(e: ParsedEvent) -> tuple:
         e.kind,
         e.source,
         e.subject,
+        e.device,
         e.lat,
         e.lon,
         e.value_num,

@@ -14,7 +14,11 @@ def test_a_fresh_database_gets_every_table(tmp_path):
     path = str(tmp_path / "fresh.db")
     db.init_db(path)
 
-    assert table_names(sqlite3.connect(path)) == TABLES
+    conn = sqlite3.connect(path)
+    assert table_names(conn) == TABLES
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
+    assert "device" in columns
 
 
 def test_an_area_with_reversed_corners_is_rejected_by_the_schema(tmp_path):
@@ -34,12 +38,14 @@ def test_initialising_twice_leaves_the_existing_data_alone(tmp_path):
     """init_db is called on every process start, so it must be idempotent."""
     path = str(tmp_path / "twice.db")
     db.init_db(path)
+
     conn = sqlite3.connect(path)
     conn.execute(
         "INSERT INTO areas (name, min_lat, min_lon, max_lat, max_lon, created_at) "
         "VALUES ('Home', 51.49, -0.11, 51.51, -0.09, 0)"
     )
     conn.commit()
+    conn.close()
 
     db.init_db(path)
 

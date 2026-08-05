@@ -45,7 +45,7 @@ class ParsedPoint:
 
 @dataclass(slots=True)
 class ParsedEvent:
-    """A non-GPS observation. Currently only OwnTracks geofence transitions."""
+    """A non-GPS observation — a geofence transition, a Shortcuts ping, etc."""
 
     ts: int
     kind: str
@@ -55,6 +55,7 @@ class ParsedEvent:
     lon: float | None = None
     value_num: float | None = None
     value_text: str | None = None
+    device: str | None = None
     payload: str | None = None
 
 

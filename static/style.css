@@ -7,6 +7,7 @@
   --accent: #2563eb;
   --stay: #7c3aed;
   --area: #0d9488;
+  --event: #64748b;
   --warn: #b45309;
   --radius: 8px;
 }
@@ -21,6 +22,7 @@
     --accent: #58a6ff;
     --stay: #a78bfa;
     --area: #2dd4bf;
+    --event: #94a3b8;
     --warn: #d29922;
   }
 }
@@ -38,7 +40,7 @@ html, body {
 #app { display: flex; height: 100%; }
 
 #sidebar {
-  width: 360px;
+  width: 420px;
   min-width: 300px;
   display: flex;
   flex-direction: column;
@@ -129,26 +131,80 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .summary .value { font-size: 18px; font-variant-numeric: tabular-nums; }
 .summary .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 
-/* -- timeline -- */
+/* -- timeline: a two-lane, time-scaled day view (Place | Events) sharing one
+   vertical axis, so an event range that spans a place boundary draws as one
+   continuous block crossing it. -- */
 
-#timeline { flex: 1; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+#timeline { flex: 1; overflow-y: auto; overflow-x: hidden; position: relative; }
 
-.item {
-  display: grid;
-  grid-template-columns: 58px 1fr;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
+.gantt-inner { position: relative; display: grid; grid-template-columns: 40px 1fr 1fr; }
+
+.ruler { position: relative; }
+.ruler .tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding-left: 2px;
+}
+
+.lane { position: relative; border-left: 1px solid var(--line); }
+
+.block {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
   cursor: pointer;
 }
-.item:hover, .item.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.block:hover, .block.active { filter: brightness(1.08); }
 
-.item .when { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
-.item .title { font-weight: 600; }
-.item .detail { color: var(--muted); font-size: 12px; }
+.block .when { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+.block .title { font-weight: 600; }
+.block .detail { color: var(--muted); font-size: 11px; }
 
-.item.stay .title { color: var(--stay); }
-.item.trip .title { color: var(--accent); }
+.block.stay {
+  background: color-mix(in srgb, var(--stay) 18%, var(--panel));
+  border-left: 3px solid var(--stay);
+}
+.block.stay .title { color: var(--stay); }
+
+.block.trip {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border-left: 3px solid var(--accent);
+}
+.block.trip .title { color: var(--accent); }
+
+.block.event.range {
+  background: color-mix(in srgb, var(--event) 16%, var(--panel));
+  border-left: 3px solid var(--event);
+}
+.block.event.range .title { color: var(--event); font-weight: 500; }
+.block.event.range.ongoing {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--event) 16%, var(--panel)),
+    transparent
+  );
+}
+
+.block.event.point {
+  height: 8px;
+  width: 8px;
+  left: 8px;
+  right: auto;
+  border-radius: 50%;
+  padding: 0;
+  background: var(--event);
+}
+.block.event.point.flagged { background: var(--warn); }
 
 .badge {
   display: inline-block;

@@ -22,6 +22,24 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULT_TZ = "UTC"
 
+# Kinds whose two value_text states form a start/end pair. geofence is
+# included so OwnTracks enter/leave events get the same range treatment as
+# Shortcuts-sourced signals. Deliberately generic: a future kind is a new
+# entry here.
+_RANGE_KINDS: dict[str, tuple[str, str]] = {
+    "app": ("open", "close"),
+    "wifi": ("connected", "disconnected"),
+    "carplay": ("connected", "disconnected"),
+    "geofence": ("enter", "leave"),
+}
+
+# Bounds how far before a day's start to look for an unmatched "start" ping
+# that might still be open (e.g. connected to CarPlay just before midnight on
+# a long drive), keeping the query cheap regardless of how much event history
+# has accumulated; none of the current signal kinds realistically stay open
+# longer than this.
+EVENT_LOOKBACK_SECONDS = 3 * 24 * 3600
+
 
 def default_timezone(conn: sqlite3.Connection, device: str | None = None) -> str:
     """The zone of the most recent stay, which is where the user last was."""
@@ -75,6 +93,80 @@ def _local_date(ts: int, tz_name: str) -> str:
     except (ZoneInfoNotFoundError, ValueError):
         tz = ZoneInfo(DEFAULT_TZ)
     return datetime.fromtimestamp(ts, tz).date().isoformat()
+
+
+def _pair_events(
+    conn: sqlite3.Connection, day_start: int, day_end: int, device: str | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Turn raw start/end pings into ranges, per (device, kind, subject).
+
+    Everything in the events table is a point observation — Shortcuts reports
+    each transition as it happens. Pairing turns that into a duration here, on
+    read, the same way segmentation happens outside of points: the raw layer
+    stays a dumb, replayable log of pings.
+    """
+    params: list[Any] = [day_start - EVENT_LOOKBACK_SECONDS, day_end]
+    query = "SELECT * FROM events WHERE ts >= ? AND ts < ?"
+    if device:
+        query += " AND device = ?"
+        params.append(device)
+    query += " ORDER BY ts"
+    rows = conn.execute(query, params).fetchall()
+
+    groups: dict[tuple[str | None, str, str | None], list[sqlite3.Row]] = {}
+    for row in rows:
+        groups.setdefault((row["device"], row["kind"], row["subject"]), []).append(row)
+
+    ranges: list[dict[str, Any]] = []
+    points: list[dict[str, Any]] = []
+
+    for (dev, kind, subject), events in groups.items():
+        pair = _RANGE_KINDS.get(kind)
+        if pair is None:
+            points.extend({**dict(r), "flagged": False} for r in events)
+            continue
+
+        start_value, end_value = pair
+        open_row = None
+        for row in events:
+            value = row["value_text"]
+            if value == start_value:
+                if open_row is None:  # a repeat "start" while already open is noise
+                    open_row = row
+            elif value == end_value and open_row is not None:
+                ranges.append(
+                    {
+                        "device": dev,
+                        "kind": kind,
+                        "subject": subject,
+                        "start_ts": open_row["ts"],
+                        "end_ts": row["ts"],
+                        "ongoing": False,
+                        "start_id": open_row["id"],
+                        "end_id": row["id"],
+                    }
+                )
+                open_row = None
+            else:
+                # an end with no open start, or an unrecognised value_text --
+                # exactly the "how often does this fail to pair" signal.
+                points.append({**dict(row), "flagged": True})
+
+        if open_row is not None:
+            ranges.append(
+                {
+                    "device": dev,
+                    "kind": kind,
+                    "subject": subject,
+                    "start_ts": open_row["ts"],
+                    "end_ts": None,
+                    "ongoing": True,
+                    "start_id": open_row["id"],
+                    "end_id": None,
+                }
+            )
+
+    return ranges, points
 
 
 def assemble_day(
@@ -185,6 +277,49 @@ def assemble_day(
             }
         )
 
+    event_ranges, event_points = _pair_events(conn, day_start, day_end, device)
+
+    for r in event_ranges:
+        clipped = _clip(r["start_ts"], r["end_ts"] or day_end, day_start, day_end)
+        if clipped is None:
+            continue
+        visible_start, visible_end, _ = clipped
+        items.append(
+            {
+                "type": "event",
+                "shape": "range",
+                "device": r["device"],
+                "kind": r["kind"],
+                "subject": r["subject"],
+                "start_ts": r["start_ts"],
+                "end_ts": r["end_ts"],
+                "visible_start_ts": visible_start,
+                "visible_end_ts": visible_end,
+                "ongoing": r["ongoing"],
+                "continuation_of": (
+                    _local_date(r["start_ts"], tz_name) if r["start_ts"] < day_start else None
+                ),
+            }
+        )
+
+    for p in event_points:
+        if not (day_start <= p["ts"] < day_end):
+            continue  # a flagged point from the lookback window, not this day
+        items.append(
+            {
+                "type": "event",
+                "shape": "point",
+                "device": p["device"],
+                "kind": p["kind"],
+                "subject": p["subject"],
+                "value_text": p["value_text"],
+                "value_num": p["value_num"],
+                "visible_start_ts": p["ts"],
+                "visible_end_ts": p["ts"],
+                "flagged": p["flagged"],
+            }
+        )
+
     items.sort(key=lambda item: item["visible_start_ts"])
 
     moving = sum(i["visible_duration_s"] for i in items if i["type"] == "trip")
@@ -204,6 +339,7 @@ def assemble_day(
             "time_stationary_s": stationary,
             "stay_count": sum(1 for i in items if i["type"] == "stay"),
             "trip_count": sum(1 for i in items if i["type"] == "trip"),
+            "event_count": sum(1 for i in items if i["type"] == "event"),
             "first_ts": items[0]["visible_start_ts"] if items else None,
             "last_ts": max((i["visible_end_ts"] for i in items), default=None),
         },

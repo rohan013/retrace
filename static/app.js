@@ -71,6 +71,27 @@ const AREA_STYLE = {
   dashArray: "4 4",
 };
 
+const PX_PER_MINUTE = 1.4; // 24h -> ~2020px, comfortably scrollable
+const MIN_BLOCK_PX = 16; // a floor so a 2-minute event/stay is still clickable
+
+const yFor = (ts, day) => ((ts - day.start_ts) / 60) * PX_PER_MINUTE;
+
+function hourLabel(hourOfDay) {
+  const h = hourOfDay % 24;
+  const period = h < 12 ? "am" : "pm";
+  const display = h % 12 === 0 ? 12 : h % 12;
+  return `${display}${period}`;
+}
+
+const EVENT_META = {
+  app: { icon: "📱", label: (i) => i.subject || "App" },
+  wifi: { icon: "📶", label: (i) => i.subject || "Wi-Fi" },
+  carplay: { icon: "🚗", label: () => "CarPlay" },
+  geofence: { icon: "📍", label: (i) => i.subject || "Area" },
+};
+const EVENT_FALLBACK = { icon: "•", label: (i) => i.subject || i.kind };
+const eventMeta = (item) => EVENT_META[item.kind] || EVENT_FALLBACK;
+
 // Blue through green and yellow to red as speed rises.
 function speedColour(mps) {
   const hue = 210 - 210 * Math.min((mps || 0) / SPEED_SATURATION_MPS, 1);
@@ -116,54 +137,98 @@ function renderSummary(day) {
     .join("");
 }
 
-function renderTimeline(day) {
-  const list = el("timeline");
-  list.innerHTML = "";
-  el("empty").hidden = day.items.length > 0;
+// Same name/duration markup the day view has always shown for a stay or a
+// trip, now returned as innerHTML for a positioned block — the two-lane
+// layout changed how these are placed, not what they say.
+function blockLabel(item, day) {
+  const when = clockTime(item.visible_start_ts, day.tz);
+  const carried = item.continuation_of
+    ? `<span class="badge">from ${item.continuation_of}</span>`
+    : "";
 
-  for (const item of day.items) {
-    const li = document.createElement("li");
-    li.className = `item ${item.type}`;
-    li.dataset.key = `${item.type}-${item.id}`;
+  if (item.type === "stay") {
+    const name = item.name
+      ? `<span>${escapeHTML(item.name)}</span>`
+      : `<span class="unnamed">Unnamed place</span>`;
+    const gap = item.had_gap ? `<span class="badge gap">gap</span>` : "";
+    const low =
+      item.confidence < 40 ? `<span class="badge low">low confidence</span>` : "";
+    return `
+      <div class="when">${when}</div>
+      <div class="title">${name}${carried}</div>
+      <div class="detail">
+        ${duration(item.visible_duration_s)} &middot; ${item.point_count} fixes
+        &middot; ${Math.round(item.radius_m)} m ${gap}${low}
+      </div>`;
+  }
+  return `
+    <div class="when">${when}</div>
+    <div class="title">Moving${carried}</div>
+    <div class="detail">
+      ${distance(item.distance_m)} &middot; ${duration(item.visible_duration_s)}
+      ${item.max_speed ? `&middot; peak ${Math.round(item.max_speed * 3.6)} km/h` : ""}
+    </div>`;
+}
 
-    const when = `${clockTime(item.visible_start_ts, day.tz)}`;
-    const carried = item.continuation_of
-      ? `<span class="badge">from ${item.continuation_of}</span>`
-      : "";
+function renderRuler(day) {
+  const ruler = el("timeline").querySelector(".ruler");
+  ruler.innerHTML = "";
+  const totalMinutes = (day.end_ts - day.start_ts) / 60;
+  const hours = Math.ceil(totalMinutes / 60);
+  for (let h = 0; h <= hours; h++) {
+    const tick = document.createElement("div");
+    tick.className = "tick";
+    tick.style.top = `${h * 60 * PX_PER_MINUTE}px`;
+    tick.textContent = hourLabel(h);
+    ruler.appendChild(tick);
+  }
+  el("gantt-inner").style.height = `${totalMinutes * PX_PER_MINUTE}px`;
+}
 
-    if (item.type === "stay") {
-      const name = item.name
-        ? `<span>${escapeHTML(item.name)}</span>`
-        : `<span class="unnamed">Unnamed place</span>`;
-      const gap = item.had_gap ? `<span class="badge gap">gap</span>` : "";
-      const low =
-        item.confidence < 40 ? `<span class="badge low">low confidence</span>` : "";
-      li.innerHTML = `
-        <div class="when">${when}</div>
-        <div>
-          <div class="title">${name}${carried}</div>
-          <div class="detail">
-            ${duration(item.visible_duration_s)} &middot; ${item.point_count} fixes
-            &middot; ${Math.round(item.radius_m)} m ${gap}${low}
-          </div>
-        </div>`;
-      li.addEventListener("dblclick", () => renameStay(item));
+function renderPlaceLane(day) {
+  const lane = el("timeline").querySelector(".lane.place");
+  lane.innerHTML = "";
+  for (const item of day.items.filter((i) => i.type === "stay" || i.type === "trip")) {
+    const top = yFor(item.visible_start_ts, day);
+    const height = Math.max(MIN_BLOCK_PX, yFor(item.visible_end_ts, day) - top);
+    const block = document.createElement("div");
+    block.className = `block ${item.type}`;
+    block.style.top = `${top}px`;
+    block.style.height = `${height}px`;
+    block.dataset.key = `${item.type}-${item.id}`;
+    block.innerHTML = blockLabel(item, day);
+    block.addEventListener("mouseenter", () => highlight(block.dataset.key, true));
+    block.addEventListener("mouseleave", () => highlight(block.dataset.key, false));
+    block.addEventListener("click", () => focusItem(item));
+    if (item.type === "stay") block.addEventListener("dblclick", () => renameStay(item));
+    lane.appendChild(block);
+  }
+}
+
+function renderEventsLane(day) {
+  const lane = el("timeline").querySelector(".lane.events");
+  lane.innerHTML = "";
+  for (const item of day.items.filter((i) => i.type === "event")) {
+    const meta = eventMeta(item);
+    const top = yFor(item.visible_start_ts, day);
+    const block = document.createElement("div");
+    if (item.shape === "range") {
+      const height = Math.max(MIN_BLOCK_PX, yFor(item.visible_end_ts, day) - top);
+      block.className = `block event range${item.ongoing ? " ongoing" : ""}`;
+      block.style.top = `${top}px`;
+      block.style.height = `${height}px`;
+      const device = item.device
+        ? `<span class="badge">${escapeHTML(item.device)}</span>`
+        : "";
+      block.innerHTML = `<div class="title">${meta.icon} ${escapeHTML(meta.label(item))}${device}</div>`;
     } else {
-      li.innerHTML = `
-        <div class="when">${when}</div>
-        <div>
-          <div class="title">Moving${carried}</div>
-          <div class="detail">
-            ${distance(item.distance_m)} &middot; ${duration(item.visible_duration_s)}
-            ${item.max_speed ? `&middot; peak ${Math.round(item.max_speed * 3.6)} km/h` : ""}
-          </div>
-        </div>`;
+      block.className = `block event point${item.flagged ? " flagged" : ""}`;
+      block.style.top = `${top}px`;
+      block.title = `${clockTime(item.visible_start_ts, day.tz)} ${meta.label(item)}${
+        item.flagged ? " (unpaired)" : ""
+      }`;
     }
-
-    li.addEventListener("mouseenter", () => highlight(li.dataset.key, true));
-    li.addEventListener("mouseleave", () => highlight(li.dataset.key, false));
-    li.addEventListener("click", () => focusItem(item));
-    list.appendChild(li);
+    lane.appendChild(block);
   }
 }
 
@@ -427,7 +492,7 @@ function highlight(key, on) {
   const marker = state.markers.get(key);
   if (marker) marker.setStyle({ weight: on ? 5 : 2 });
   document
-    .querySelectorAll(".item")
+    .querySelectorAll(".block")
     .forEach((node) => node.classList.toggle("active", on && node.dataset.key === key));
 }
 
@@ -492,7 +557,10 @@ async function load() {
 
   clearLayers();
   renderSummary(day);
-  renderTimeline(day);
+  el("empty").hidden = day.items.length > 0;
+  renderRuler(day);
+  renderPlaceLane(day);
+  renderEventsLane(day);
   renderStays(day);
 
   const points = await loadPoints(day);

@@ -139,6 +139,7 @@ def test_geofence_transitions_become_events(client, conn):
     assert row["kind"] == "geofence"
     assert row["subject"] == "home"
     assert row["value_text"] == "enter"
+    assert row["device"] == "RX"
     assert conn.execute("SELECT COUNT(*) AS n FROM points").fetchone()["n"] == 0
 
 
@@ -148,6 +149,81 @@ def test_other_owntracks_message_types_are_accepted_and_discarded(client, conn, 
     response = client.post("/api/v1/locations", json={"_type": kind, "tst": BASE_TS})
     assert response.status_code == 200
     assert conn.execute("SELECT COUNT(*) AS n FROM points").fetchone()["n"] == 0
+
+
+# -- shortcuts provider ------------------------------------------------------
+
+
+def test_shortcuts_payload_becomes_an_event(client, conn):
+    response = client.post(
+        "/api/v1/locations?format=shortcuts",
+        json={
+            "kind": "app",
+            "subject": "Spotify",
+            "value": "open",
+            "device": "iphone",
+            "ts": BASE_TS,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"accepted": 0, "duplicates": 0, "events": 1}
+
+    row = conn.execute("SELECT * FROM events").fetchone()
+    assert row["kind"] == "app"
+    assert row["subject"] == "Spotify"
+    assert row["value_text"] == "open"
+    assert row["device"] == "iphone"
+    assert row["ts"] == BASE_TS
+    assert row["source"] == "shortcuts"
+
+
+def test_shortcuts_ts_defaults_to_receive_time(client, conn):
+    import time
+
+    client.post(
+        "/api/v1/locations?format=shortcuts",
+        json={"kind": "carplay", "value": "connected", "device": "iphone"},
+    )
+    row = conn.execute("SELECT ts FROM events").fetchone()
+    assert abs(row["ts"] - int(time.time())) < 5
+
+
+def test_shortcuts_device_falls_back_to_header_then_default():
+    from app.providers.shortcuts import ShortcutsProvider
+
+    provider = ShortcutsProvider()
+
+    from_header = provider.parse({"kind": "app", "value": "open"}, {"x-device": "ipad"})
+    assert from_header.events[0].device == "ipad"
+
+    from_default = provider.parse({"kind": "app", "value": "open"}, {})
+    assert from_default.events[0].device == "unknown"
+
+
+def test_shortcuts_detection_does_not_collide_with_other_providers():
+    assert detect({"kind": "app", "value": "open"}).name == "shortcuts"
+    assert detect({"_type": "location"}).name == "owntracks"
+    assert detect({"points": []}).name == "generic"
+
+
+def test_replaying_a_shortcuts_event_stores_it_once(client, conn):
+    payload = {
+        "kind": "app",
+        "subject": "Spotify",
+        "value": "open",
+        "device": "iphone",
+        "ts": BASE_TS,
+    }
+    client.post("/api/v1/locations?format=shortcuts", json=payload)
+    client.post("/api/v1/locations?format=shortcuts", json=payload)
+    assert conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"] == 1
+
+
+def test_shortcuts_events_from_two_devices_are_not_deduped_together(client, conn):
+    base = {"kind": "battery", "value": "charging", "ts": BASE_TS}
+    client.post("/api/v1/locations?format=shortcuts", json={**base, "device": "iphone"})
+    client.post("/api/v1/locations?format=shortcuts", json={**base, "device": "ipad"})
+    assert conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"] == 2
 
 
 # -- idempotency ------------------------------------------------------------

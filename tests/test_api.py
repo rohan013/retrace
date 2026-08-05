@@ -124,6 +124,155 @@ def test_a_midnight_crossing_trip_splits_its_distance(client, conn):
     assert second["summary"]["distance_m"] > 0
 
 
+# -- events -------------------------------------------------------------
+
+
+def insert_event(conn, ts, kind, value_text=None, subject=None, device="phone", source="test"):
+    conn.execute(
+        "INSERT INTO events (ts, kind, source, subject, device, value_text, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (ts, kind, source, subject, device, value_text, ts),
+    )
+
+
+def test_a_paired_start_and_end_become_one_range(client, conn):
+    insert_event(conn, BASE_TS, "app", "open", subject="Spotify")
+    insert_event(conn, BASE_TS + 600, "app", "close", subject="Spotify")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event"]
+
+    assert len(events) == 1
+    assert events[0]["shape"] == "range"
+    assert events[0]["start_ts"] == BASE_TS
+    assert events[0]["end_ts"] == BASE_TS + 600
+    assert events[0]["ongoing"] is False
+
+
+def test_an_unmatched_start_is_ongoing(client, conn):
+    insert_event(conn, BASE_TS, "wifi", "connected", subject="HomeWifi")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event"]
+
+    assert len(events) == 1
+    assert events[0]["shape"] == "range"
+    assert events[0]["ongoing"] is True
+    assert events[0]["end_ts"] is None
+
+
+def test_an_unmatched_end_is_a_flagged_point(client, conn):
+    insert_event(conn, BASE_TS, "wifi", "disconnected", subject="HomeWifi")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event"]
+
+    assert len(events) == 1
+    assert events[0]["shape"] == "point"
+    assert events[0]["flagged"] is True
+
+
+def test_a_repeated_start_before_any_end_is_ignored(client, conn):
+    """Covers a double-fired automation: only the first start is used."""
+    insert_event(conn, BASE_TS, "app", "open", subject="Spotify")
+    insert_event(conn, BASE_TS + 60, "app", "open", subject="Spotify")
+    insert_event(conn, BASE_TS + 600, "app", "close", subject="Spotify")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event"]
+
+    assert len(events) == 1
+    assert events[0]["start_ts"] == BASE_TS
+    assert events[0]["end_ts"] == BASE_TS + 600
+
+
+def test_a_range_spanning_midnight_shows_as_ongoing_on_the_earlier_day(client, conn):
+    """Pairing looks backward from a day's own end. A range whose close lands on
+    the following day is paired there, and reads as ongoing from here."""
+    insert_event(conn, UTC_MIDNIGHT - 3600, "carplay", "connected")
+    insert_event(conn, UTC_MIDNIGHT + 3600, "carplay", "disconnected")
+
+    first = client.get(f"/api/v1/days/{EVE}?tz=UTC").json()
+    first_event = [i for i in first["items"] if i["type"] == "event"][0]
+    assert first_event["ongoing"] is True
+    assert first_event["continuation_of"] is None
+
+
+def test_a_range_spanning_midnight_is_paired_on_the_later_day(client, conn):
+    insert_event(conn, UTC_MIDNIGHT - 3600, "carplay", "connected")
+    insert_event(conn, UTC_MIDNIGHT + 3600, "carplay", "disconnected")
+
+    second = client.get(f"/api/v1/days/{MORNING}?tz=UTC").json()
+    second_event = [i for i in second["items"] if i["type"] == "event"][0]
+
+    assert second_event["ongoing"] is False
+    assert second_event["start_ts"] == UTC_MIDNIGHT - 3600
+    assert second_event["end_ts"] == UTC_MIDNIGHT + 3600
+    assert second_event["continuation_of"] == EVE
+
+
+def test_an_unrecognised_kind_is_always_a_point(client, conn):
+    insert_event(conn, BASE_TS, "workout", "started")
+    insert_event(conn, BASE_TS + 600, "workout", "ended")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event"]
+
+    assert len(events) == 2
+    assert all(e["shape"] == "point" and not e["flagged"] for e in events)
+
+
+def test_geofence_enter_leave_pairs_into_a_range(client, conn):
+    insert_event(conn, BASE_TS, "geofence", "enter", subject="home")
+    insert_event(conn, BASE_TS + 1800, "geofence", "leave", subject="home")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event"]
+
+    assert len(events) == 1
+    assert events[0]["shape"] == "range"
+    assert events[0]["subject"] == "home"
+
+
+def test_event_count_appears_in_the_summary(client, conn):
+    insert_event(conn, BASE_TS, "app", "open", subject="Spotify")
+    insert_event(conn, BASE_TS + 600, "app", "close", subject="Spotify")
+    insert_event(conn, BASE_TS + 1200, "wifi", "disconnected")
+
+    summary = client.get("/api/v1/days/2026-06-01").json()["summary"]
+    assert summary["event_count"] == 2
+
+
+def test_events_appear_alongside_stays_and_trips_sorted_by_time(client, conn):
+    seed(client, conn)
+    insert_event(conn, BASE_TS + 3600, "app", "open", subject="Spotify")
+    insert_event(conn, BASE_TS + 3900, "app", "close", subject="Spotify")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    assert "event" in {i["type"] for i in day["items"]}
+    assert day["items"] == sorted(day["items"], key=lambda i: i["visible_start_ts"])
+
+
+def test_events_endpoint_returns_a_plain_list(client, conn):
+    assert client.get("/api/v1/events").json() == []
+
+
+def test_events_filter_by_time_device_and_kind(client, conn):
+    insert_event(conn, BASE_TS, "app", "open", subject="Spotify", device="iphone")
+    insert_event(
+        conn, BASE_TS + 100_000, "wifi", "connected", subject="Office", device="ipad"
+    )
+
+    by_device = client.get("/api/v1/events?device=iphone").json()
+    assert {e["device"] for e in by_device} == {"iphone"}
+
+    by_kind = client.get("/api/v1/events?kind=wifi").json()
+    assert {e["kind"] for e in by_kind} == {"wifi"}
+
+    later = client.get(f"/api/v1/events?from={BASE_TS + 50_000}").json()
+    assert {e["device"] for e in later} == {"ipad"}
+
+
 # -- points -----------------------------------------------------------------
 
 

@@ -78,6 +78,8 @@ def test_a_restored_snapshot_holds_every_table(conn, db_path, tmp_path):
     assert restored.execute("SELECT name FROM areas").fetchone()[0] == "Home"
     # The schema travels with the data, so a restore is ready to serve as it is.
     assert table_names(restored) == TABLES
+    columns = {row[1] for row in restored.execute("PRAGMA table_info(events)")}
+    assert "device" in columns
 
 
 def test_an_unreadable_snapshot_is_refused_rather_than_rotated_in(conn, db_path, tmp_path):

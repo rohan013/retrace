@@ -295,6 +295,36 @@ def get_trips(
     return [dict(row) for row in rows]
 
 
+@app.get("/api/v1/events")
+def get_events(
+    from_ts: int | None = Query(default=None, alias="from"),
+    to_ts: int | None = Query(default=None, alias="to"),
+    device: str | None = None,
+    kind: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    """Raw event pings, unpaired. See `/api/v1/days/{day}` for the paired,
+    day-assembled view used by the UI."""
+    where: list[str] = []
+    params: list[Any] = []
+    if from_ts is not None:
+        where.append("ts >= ?")
+        params.append(from_ts)
+    if to_ts is not None:
+        where.append("ts < ?")
+        params.append(to_ts)
+    if device:
+        where.append("device = ?")
+        params.append(device)
+    if kind:
+        where.append("kind = ?")
+        params.append(kind)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+
+    rows = conn.execute(f"SELECT * FROM events{clause} ORDER BY ts", params).fetchall()
+    return [dict(row) for row in rows]
+
+
 # -- places and areas -------------------------------------------------------
 
 

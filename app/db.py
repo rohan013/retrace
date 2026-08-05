@@ -137,15 +137,16 @@ CREATE TABLE stay_notes (
 );
 CREATE UNIQUE INDEX stay_notes_device_anchor ON stay_notes(device, anchor_ts);
 
--- The extension point for later passive sources (Shortcuts, Mac activity,
--- payments). Deliberately schemaless in `payload`, so a new source needs an
--- ingest route and nothing else. Unused for now.
+-- The extension point for passive sources (iOS Shortcuts, geofence
+-- transitions, and whatever comes later). `payload` is schemaless, so a new
+-- source's ingest route can start writing rows straight away.
 CREATE TABLE events (
     id         INTEGER PRIMARY KEY,
     ts         INTEGER NOT NULL,
     kind       TEXT    NOT NULL,
     source     TEXT    NOT NULL,
     subject    TEXT,
+    device     TEXT,
     lat        REAL,
     lon        REAL,
     value_num  REAL,
@@ -153,8 +154,9 @@ CREATE TABLE events (
     payload    TEXT,
     created_at INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX events_dedup ON events(source, ts, kind, IFNULL(subject, ''));
+CREATE UNIQUE INDEX events_dedup ON events(source, ts, kind, IFNULL(subject, ''), IFNULL(device, ''));
 CREATE INDEX events_ts ON events(ts);
+CREATE INDEX events_device_ts ON events(device, ts);
 
 CREATE TABLE state (
     key   TEXT PRIMARY KEY,
