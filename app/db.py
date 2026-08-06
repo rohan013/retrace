@@ -21,7 +21,7 @@ Design notes that the schema encodes deliberately:
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Generator
 
 from . import config
 
@@ -200,7 +200,7 @@ def _raw_connect(path: str) -> sqlite3.Connection:
 
 
 @contextmanager
-def connection(path: str | None = None) -> Iterator[sqlite3.Connection]:
+def connection(path: str | None = None) -> Generator[sqlite3.Connection]:
     """A connection with WAL and foreign keys enabled."""
     conn = _raw_connect(path or config.DB_PATH)
     try:
