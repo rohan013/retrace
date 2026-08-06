@@ -182,18 +182,34 @@ that is roughly **1.1 GB/year** with full raw payloads retained.
 ## iPhone — Shortcuts
 
 Personal Automations for device-activity signals, posted to the same ingest
-path as OwnTracks. Shortcuts app → **Automation** tab → **+** → pick a
-trigger → **Get Contents of URL**:
+path as OwnTracks. The credentials live in **one** shortcut that every
+automation calls, rather than being copied into each one — adding an app is
+then two automations with no secrets in them.
+
+**The shared shortcut**, once. Shortcuts app → **+** → name it `Post Event`,
+and give it four actions:
+
+1. **Get Dictionary from Input**
+2. **Get Value for Key** `subject` — rename its output `Subject`
+3. **Get Value for Key** `value` — rename its output `Value`
+4. **Get Contents of URL**:
 
 | Field | Value |
 |---|---|
 | URL | `https://tracker.<your-domain>/api/v1/locations?format=shortcuts` |
 | Method | `POST` |
-| Headers | `Authorization: Bearer <INGEST_TOKEN>`, `CF-Access-Client-Id: <id>`, `CF-Access-Client-Secret: <secret>`, `Content-Type: application/json` |
-| Request Body | JSON, built from a Dictionary — see the automations below |
+| Headers | `Authorization: Bearer <INGEST_TOKEN>`, `CF-Access-Client-Id: <id>`, `CF-Access-Client-Secret: <secret>` |
+| Request Body | JSON — `kind` `app`, `subject` the `Subject` variable, `value` the `Value` variable, `device` your phone's name |
 
-Turn off **Ask Before Running** and **Notify When Run** on each one so it
-fires silently.
+The `Authorization` header is not optional: Service Auth gets the request past
+Cloudflare, but the app checks the ingest token independently and returns 401
+without it.
+
+**The automations**, two per app. **Automation** tab → **+** → pick a trigger →
+**Run Immediately**, **Notify When Run** off, then two actions: a **Dictionary**
+with `subject` and `value` set for that signal, and **Run Shortcut** → `Post
+Event` with the dictionary as its input. Duplicate a pair to cover another app
+and change only the trigger and the `subject` string.
 
 Each signal is a start/end pair, one automation per half; the server pairs
 sequential pings into a range keyed on `(device, kind, subject)`:
@@ -204,7 +220,11 @@ sequential pings into a range keyed on `(device, kind, subject)`:
 | Wi-Fi → Connects / Disconnects (one pair per network you track) | `wifi` | `connected` / `disconnected` | the SSID |
 | CarPlay → Connects / Disconnects | `carplay` | `connected` / `disconnected` | — |
 
-Example body for "Spotify → Is Opened":
+`kind` is fixed to `app` inside `Post Event`. For the Wi-Fi and CarPlay rows,
+either add a `kind` key to the dictionary and read it with a fourth **Get Value
+for Key**, or keep a second copy of the shortcut per kind.
+
+The body `Post Event` ends up sending for "Spotify → Is Opened":
 
 ```json
 {"kind": "app", "subject": "Spotify", "value": "open", "device": "iphone"}
