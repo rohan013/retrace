@@ -170,6 +170,21 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .block .title { font-weight: 600; }
 .block .detail { color: var(--muted); font-size: 11px; }
 
+/* Too short for the 3-line label above to fit without clipping — one line
+   instead, with the rest available on hover via the block's title attribute. */
+.block.compact {
+  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+}
+.block.compact .line {
+  width: 100%;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .block.stay {
   background: color-mix(in srgb, var(--stay) 18%, var(--panel));
   border-left: 3px solid var(--stay);

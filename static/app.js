@@ -72,7 +72,8 @@ const AREA_STYLE = {
 };
 
 const PX_PER_MINUTE = 1.4; // 24h -> ~2020px, comfortably scrollable
-const MIN_BLOCK_PX = 16; // a floor so a 2-minute event/stay is still clickable
+const MIN_BLOCK_PX = 20; // a floor so even the shortest block fits one compact line
+const FULL_LABEL_MIN_PX = 52; // 3 lines at these font sizes plus padding, below this it clips
 
 const yFor = (ts, day) => ((ts - day.start_ts) / 60) * PX_PER_MINUTE;
 
@@ -170,6 +171,41 @@ function blockLabel(item, day) {
     </div>`;
 }
 
+// Same data as blockLabel(), condensed onto one line for blocks too short to
+// show three — a short stay/trip is common (a quick stop, a short hop) and
+// clipped, blank text is worse than a terse line.
+function compactLabel(item, day) {
+  const when = clockTime(item.visible_start_ts, day.tz);
+  if (item.type === "stay") {
+    const name = item.name ? escapeHTML(item.name) : "Unnamed place";
+    return `<div class="line">${when} &middot; ${name} &middot; ${duration(item.visible_duration_s)}</div>`;
+  }
+  return `<div class="line">${when} &middot; Moving &middot; ${distance(item.distance_m)}</div>`;
+}
+
+// Plain-text version of everything blockLabel() shows, for a native hover
+// tooltip — the detail a compact block can't fit inline, without adding any
+// interaction beyond what the browser gives a title attribute for free.
+function tooltipText(item, day) {
+  const when = clockTime(item.visible_start_ts, day.tz);
+  const until = clockTime(item.visible_end_ts, day.tz);
+  const span = `${when}–${until} (${duration(item.visible_duration_s)})`;
+  const bits = [span];
+
+  if (item.type === "stay") {
+    bits.push(item.name || "Unnamed place");
+    bits.push(`${item.point_count} fixes, ${Math.round(item.radius_m)} m radius`);
+    bits.push(`confidence ${item.confidence}`);
+    if (item.had_gap) bits.push("includes a reporting gap");
+  } else {
+    bits.push("Moving");
+    bits.push(distance(item.distance_m));
+    if (item.max_speed) bits.push(`peak ${Math.round(item.max_speed * 3.6)} km/h`);
+  }
+  if (item.continuation_of) bits.push(`continued from ${item.continuation_of}`);
+  return bits.join(" · ");
+}
+
 function renderRuler(day) {
   const ruler = el("timeline").querySelector(".ruler");
   ruler.innerHTML = "";
@@ -191,12 +227,14 @@ function renderPlaceLane(day) {
   for (const item of day.items.filter((i) => i.type === "stay" || i.type === "trip")) {
     const top = yFor(item.visible_start_ts, day);
     const height = Math.max(MIN_BLOCK_PX, yFor(item.visible_end_ts, day) - top);
+    const compact = height < FULL_LABEL_MIN_PX;
     const block = document.createElement("div");
-    block.className = `block ${item.type}`;
+    block.className = `block ${item.type}${compact ? " compact" : ""}`;
     block.style.top = `${top}px`;
     block.style.height = `${height}px`;
     block.dataset.key = `${item.type}-${item.id}`;
-    block.innerHTML = blockLabel(item, day);
+    block.title = tooltipText(item, day);
+    block.innerHTML = compact ? compactLabel(item, day) : blockLabel(item, day);
     block.addEventListener("mouseenter", () => highlight(block.dataset.key, true));
     block.addEventListener("mouseleave", () => highlight(block.dataset.key, false));
     block.addEventListener("click", () => focusItem(item));
