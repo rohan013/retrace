@@ -89,6 +89,9 @@ const EVENT_META = {
   wifi: { icon: "📶", label: (i) => i.subject || "Wi-Fi" },
   carplay: { icon: "🚗", label: () => "CarPlay" },
   geofence: { icon: "📍", label: (i) => i.subject || "Area" },
+  session: { icon: "💻", label: () => "Session" },
+  focus: { icon: "🪟", label: (i) => i.subject || "App" },
+  site: { icon: "🌐", label: (i) => i.subject || "Site" },
 };
 const EVENT_FALLBACK = { icon: "•", label: (i) => i.subject || i.kind };
 const eventMeta = (item) => EVENT_META[item.kind] || EVENT_FALLBACK;
@@ -561,7 +564,10 @@ async function loadDevices() {
   for (const d of devices) {
     const option = document.createElement("option");
     option.value = d.device;
-    option.textContent = `${d.device} (${d.points.toLocaleString()})`;
+    const parts = [];
+    if (d.points) parts.push(`${d.points.toLocaleString()} pts`);
+    if (d.events) parts.push(`${d.events.toLocaleString()} events`);
+    option.textContent = `${d.device} (${parts.join(", ") || "0"})`;
     select.appendChild(option);
   }
   select.value = state.device;

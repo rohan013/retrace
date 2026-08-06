@@ -29,6 +29,7 @@ app/          the service
 static/       the web UI
 scripts/      backup, synthetic data
 deploy/       systemd units
+macos/        the MacBook activity daemon — runs on the Mac, not this server
 tests/
 data/         the database and its backups (gitignored)
 ```
@@ -218,6 +219,53 @@ A signal missing its other half shows in the day view open-ended (still
 connected/open) or as a flagged point with no duration (a close with no
 matching open) — worth checking occasionally to see how often an automation
 fails to fire its other half.
+
+---
+
+## MacBook
+
+A small event-driven daemon in [`macos/`](macos/) posts the same event
+shape Shortcuts does, from a LaunchAgent instead of a personal automation —
+see [`macos/README.md`](macos/README.md) for the full build and install
+spec. This section covers what it sends and why, once it's running.
+
+Three signals, all posted to `/api/v1/locations?format=shortcuts` like the
+phone:
+
+| Signal | `kind` | `value` | `subject` |
+|---|---|---|---|
+| Screen unlock/wake vs. lock/sleep | `session` | `unlock` / `lock` | — |
+| Frontmost app changes | `focus` | `start` / `end` | the app's name |
+| Active tab's site, while a tracked browser is frontmost | `site` | `start` / `end` | bare domain, e.g. `github.com` |
+
+Site-tracking covers Chrome, Brave, Edge and Arc — the Chromium family
+exposes a `mode` property (`"normal"`/`"incognito"`) via AppleScript, so
+private windows are excluded cleanly: the daemon records no `site` event at
+all while the active window is incognito. Safari and Firefox aren't
+covered — Safari has no reliably scriptable way to detect a private window,
+and Firefox has no AppleScript dictionary at all.
+
+Unlike the iPhone, which needs one Shortcuts automation per app it tracks,
+the Mac daemon observes every focus change through a single macOS
+notification — no per-app setup. It's event-driven throughout (real
+`NSWorkspace` and screen-lock notifications, not a polling loop) except for
+the active browser tab, which has no "changed" notification and so is
+polled every few seconds, but only while a tracked browser is actually the
+frontmost app.
+
+It needs its own Cloudflare Service Token, same as the phone — this is the
+`tracker-macbook` token the Service credentials step above already
+anticipated by name.
+
+Sanity-check the path before installing the LaunchAgent for real:
+
+```bash
+curl -X POST "https://tracker.<your-domain>/api/v1/locations?format=shortcuts" \
+  -H "Authorization: Bearer $INGEST_TOKEN" \
+  -H "CF-Access-Client-Id: <id>" -H "CF-Access-Client-Secret: <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"focus","subject":"Terminal","value":"start","device":"macbook"}'
+```
 
 ---
 

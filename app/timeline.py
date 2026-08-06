@@ -24,13 +24,16 @@ DEFAULT_TZ = "UTC"
 
 # Kinds whose two value_text states form a start/end pair. geofence is
 # included so OwnTracks enter/leave events get the same range treatment as
-# Shortcuts-sourced signals. Deliberately generic: a future kind is a new
-# entry here.
+# Shortcuts-sourced signals, and session/focus/site do the same for the
+# MacBook daemon. Deliberately generic: a future kind is a new entry here.
 _RANGE_KINDS: dict[str, tuple[str, str]] = {
     "app": ("open", "close"),
     "wifi": ("connected", "disconnected"),
     "carplay": ("connected", "disconnected"),
     "geofence": ("enter", "leave"),
+    "session": ("unlock", "lock"),
+    "focus": ("start", "end"),
+    "site": ("start", "end"),
 }
 
 # Bounds how far before a day's start to look for an unmatched "start" ping

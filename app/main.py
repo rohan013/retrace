@@ -435,10 +435,27 @@ def delete_area(area_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> N
 
 @app.get("/api/v1/devices")
 def get_devices(conn: sqlite3.Connection = Depends(get_conn)) -> list[dict[str, Any]]:
+    # Unioned with events so a device that never sends a GPS fix -- a MacBook
+    # posting only session/focus/site activity, say -- still shows up here
+    # and in the frontend's device filter.
     rows = conn.execute(
         """
-        SELECT device, COUNT(*) AS points, MIN(ts) AS first_ts, MAX(ts) AS last_ts
-        FROM points GROUP BY device ORDER BY last_ts DESC
+        SELECT device,
+               SUM(points) AS points,
+               SUM(events) AS events,
+               MIN(first_ts) AS first_ts,
+               MAX(last_ts) AS last_ts
+        FROM (
+            SELECT device, COUNT(*) AS points, 0 AS events,
+                   MIN(ts) AS first_ts, MAX(ts) AS last_ts
+            FROM points GROUP BY device
+            UNION ALL
+            SELECT device, 0 AS points, COUNT(*) AS events,
+                   MIN(ts) AS first_ts, MAX(ts) AS last_ts
+            FROM events WHERE device IS NOT NULL GROUP BY device
+        )
+        GROUP BY device
+        ORDER BY last_ts DESC
         """
     ).fetchall()
     return [dict(row) for row in rows]

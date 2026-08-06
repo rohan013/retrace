@@ -273,6 +273,106 @@ def test_events_filter_by_time_device_and_kind(client, conn):
     assert {e["device"] for e in later} == {"ipad"}
 
 
+# -- macbook activity ---------------------------------------------------
+
+
+def test_session_unlock_lock_pairs_into_a_range(client, conn):
+    insert_event(conn, BASE_TS, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 3600, "session", "lock", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event" and i["kind"] == "session"]
+
+    assert len(events) == 1
+    assert events[0]["shape"] == "range"
+    assert events[0]["subject"] is None
+    assert events[0]["start_ts"] == BASE_TS
+    assert events[0]["end_ts"] == BASE_TS + 3600
+
+
+def test_session_tolerates_a_redundant_unlock_from_wake_and_screen_unlock(client, conn):
+    """Wake and screen-unlock both firing produces two 'unlock' pings -- the
+    second is noise, same tolerance the phone already relies on."""
+    insert_event(conn, BASE_TS, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 2, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 3600, "session", "lock", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event" and i["kind"] == "session"]
+
+    assert len(events) == 1
+    assert events[0]["start_ts"] == BASE_TS
+
+
+def test_session_a_redundant_lock_strands_as_a_flagged_point(client, conn):
+    """Unlike a redundant start, a redundant end is NOT absorbed -- this is
+    why the daemon must dedup sleep/lock itself rather than relying on
+    server-side pairing tolerance."""
+    insert_event(conn, BASE_TS, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 3600, "session", "lock", device="macbook")
+    insert_event(conn, BASE_TS + 3602, "session", "lock", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    events = [i for i in day["items"] if i["type"] == "event" and i["kind"] == "session"]
+
+    ranges = [e for e in events if e["shape"] == "range"]
+    points = [e for e in events if e["shape"] == "point"]
+    assert len(ranges) == 1
+    assert len(points) == 1
+    assert points[0]["flagged"] is True
+
+
+def test_focus_switching_apps_closes_the_previous_and_opens_the_next(client, conn):
+    insert_event(conn, BASE_TS, "focus", "start", subject="Terminal", device="macbook")
+    insert_event(conn, BASE_TS + 120, "focus", "end", subject="Terminal", device="macbook")
+    insert_event(conn, BASE_TS + 120, "focus", "start", subject="Safari", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = sorted(
+        (i for i in day["items"] if i["type"] == "event" and i["kind"] == "focus"),
+        key=lambda e: e["start_ts"],
+    )
+
+    assert len(ranges) == 2
+    assert ranges[0]["subject"] == "Terminal"
+    assert ranges[0]["end_ts"] == BASE_TS + 120
+    assert ranges[0]["ongoing"] is False
+    assert ranges[1]["subject"] == "Safari"
+    assert ranges[1]["ongoing"] is True
+
+
+def test_site_domain_switch_with_a_gap_emits_no_site_during_it(client, conn):
+    """The gap stands in for an incognito window: the daemon emits nothing
+    while mode == 'incognito', so no 'site' event exists for that stretch."""
+    insert_event(conn, BASE_TS, "site", "start", subject="github.com", device="macbook")
+    insert_event(conn, BASE_TS + 300, "site", "end", subject="github.com", device="macbook")
+    insert_event(
+        conn, BASE_TS + 900, "site", "start", subject="news.ycombinator.com", device="macbook"
+    )
+    insert_event(
+        conn, BASE_TS + 1200, "site", "end", subject="news.ycombinator.com", device="macbook"
+    )
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = sorted(
+        (i for i in day["items"] if i["type"] == "event" and i["kind"] == "site"),
+        key=lambda e: e["start_ts"],
+    )
+
+    assert {r["subject"] for r in ranges} == {"github.com", "news.ycombinator.com"}
+    assert ranges[0]["end_ts"] < ranges[1]["start_ts"]
+
+
+def test_a_device_that_only_sends_events_still_appears_in_the_device_list(client, conn):
+    insert_event(conn, BASE_TS, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 3600, "session", "lock", device="macbook")
+
+    devices = {d["device"]: d for d in client.get("/api/v1/devices").json()}
+    assert "macbook" in devices
+    assert devices["macbook"]["points"] == 0
+    assert devices["macbook"]["events"] == 2
+
+
 # -- points -----------------------------------------------------------------
 
 
