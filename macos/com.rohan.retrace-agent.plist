@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rohan.retrace-agent</string>
+
+    <!-- ProgramArguments/WorkingDirectory point at the deployed runtime
+         copy, not this git checkout -- macOS blocks launchd-spawned
+         processes from reading files under ~/Desktop even with normal
+         file permissions (TCC's Desktop/Documents/Downloads protection
+         only extends consent to apps a human explicitly approved, e.g.
+         Terminal.app). install.sh deploys agent.py + a fresh venv to
+         ~/Library/Application Support/retrace-agent/, outside that
+         protected scope, and rewrites these two placeholders below to
+         point there before copying this file into ~/Library/LaunchAgents/. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>__RUNTIME_DIR__/.venv/bin/python3</string>
+        <string>__RUNTIME_DIR__/agent.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__RUNTIME_DIR__</string>
+
+    <!-- Starts on login and every login thereafter; restarts if it ever
+         exits (a crash shouldn't mean silent tracking loss until the next
+         reboot). -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/retrace-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/retrace-agent.log</string>
+</dict>
+</plist>

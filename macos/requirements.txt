@@ -1,0 +1,8 @@
+# NSWorkspace / NSDistributedNotificationCenter (focus, sleep, wake).
+pyobjc-framework-Cocoa
+
+# CGSessionCopyCurrentDictionary, to read the current lock state at startup
+# without shelling out to `ioreg` and parsing its text output.
+pyobjc-framework-Quartz
+
+requests
