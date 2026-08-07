@@ -15,6 +15,7 @@ zone of their own coordinates, so a day viewed while travelling uses the zone th
 user was actually in rather than a fixed account setting.
 """
 
+import json
 import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -96,6 +97,30 @@ def _local_date(ts: int, tz_name: str) -> str:
     except (ZoneInfoNotFoundError, ValueError):
         tz = ZoneInfo(DEFAULT_TZ)
     return datetime.fromtimestamp(ts, tz).date().isoformat()
+
+
+def _stay_anchor(stay: sqlite3.Row) -> int:
+    """Same anchor `patch_stay()` writes a note under — see app/main.py."""
+    return ((stay["start_ts"] + stay["end_ts"]) // 2 // 300) * 300
+
+
+def _notes_by_anchor(
+    conn: sqlite3.Connection, stays: list[sqlite3.Row]
+) -> dict[tuple[str, int], str]:
+    """Notes for this day's stays, keyed the same way `patch_stay()` writes them."""
+    if not stays:
+        return {}
+    devices = {s["device"] for s in stays}
+    anchors = {_stay_anchor(s) for s in stays}
+    placeholders = ",".join("?" * len(devices))
+    rows = conn.execute(
+        f"""
+        SELECT device, anchor_ts, note FROM stay_notes
+        WHERE device IN ({placeholders}) AND anchor_ts IN ({",".join("?" * len(anchors))})
+        """,
+        [*devices, *anchors],
+    ).fetchall()
+    return {(r["device"], r["anchor_ts"]): r["note"] for r in rows}
 
 
 def _pair_events(
@@ -210,6 +235,7 @@ def assemble_day(
     ).fetchall()
 
     items: list[dict[str, Any]] = []
+    notes = _notes_by_anchor(conn, stays)
 
     for stay in stays:
         clipped = _clip(stay["start_ts"], stay["end_ts"], day_start, day_end)
@@ -233,11 +259,17 @@ def assemble_day(
                 "radius_m": stay["radius_m"],
                 "point_count": stay["point_count"],
                 "confidence": stay["confidence"],
+                "confidence_breakdown": (
+                    json.loads(stay["confidence_breakdown"])
+                    if stay["confidence_breakdown"]
+                    else {}
+                ),
                 "had_gap": bool(stay["had_gap"]),
                 "tz": stay["tz"],
                 "place_id": stay["place_id"],
                 "area_id": stay["area_id"],
                 "name": stay["area_name"] or stay["place_name"],
+                "note": notes.get((stay["device"], _stay_anchor(stay))),
                 "continuation_of": (
                     _local_date(stay["start_ts"], tz_name)
                     if stay["start_ts"] < day_start

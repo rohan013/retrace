@@ -502,8 +502,31 @@ def healthz(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers=NO_STORE_HTML)
+
+
+# The UI is plain files with no build step, so there are no content-hashed
+# filenames to bust a cache with. Without an explicit Cache-Control, browsers
+# fall back to heuristic caching and will happily serve a stale app.js for
+# hours — editing a file then seeing no change is a cache problem, not a code
+# one, and it is worth spending a conditional request per load to never have to
+# diagnose that again.
+#
+# `no-cache` does not mean "do not cache": it means "revalidate before reusing".
+# StaticFiles already sends ETag and Last-Modified, so a revalidation is a 304
+# with no body — cheap on a LAN and through the tunnel alike.
+NO_CACHE = {"Cache-Control": "no-cache"}
+NO_STORE_HTML = {"Cache-Control": "no-cache, must-revalidate"}
+
+
+class RevalidatingStaticFiles(StaticFiles):
+    """StaticFiles that asks the client to revalidate instead of guessing."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(NO_CACHE)
+        return response
 
 
 if STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")

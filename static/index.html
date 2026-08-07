@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>retrace</title>
+  <meta name="color-scheme" content="dark">
   <!-- Leaflet is vendored rather than pulled from a CDN: a self-hosted tracker
        should not stop working because unpkg is unreachable, and should not
        announce itself to a third party on every page load. -->
@@ -12,48 +13,65 @@
 </head>
 <body>
   <div id="app">
-    <aside id="sidebar">
-      <header id="daybar">
-        <button id="prev" title="Previous day">&larr;</button>
-        <input type="date" id="date">
-        <button id="next" title="Next day">&rarr;</button>
-        <button id="today" title="Jump to today">Today</button>
-      </header>
+    <header id="daybar">
+      <button id="prev" title="Previous day">&larr;</button>
+      <input type="date" id="date">
+      <button id="next" title="Next day">&rarr;</button>
+      <button id="today" title="Jump to today">Today</button>
 
-      <div id="controls">
-        <select id="device"><option value="">All devices</option></select>
-        <label class="toggle">
-          <input type="checkbox" id="show-raw">
-          <span>Raw fixes</span>
-        </label>
+      <div id="zoom-presets" role="group" aria-label="Zoom level">
+        <button data-zoom="day">Day</button>
+        <button data-zoom="1h">1h</button>
+        <button data-zoom="10m">10m</button>
+        <button data-zoom="1m">1m</button>
+        <button data-zoom="10s">10s</button>
       </div>
 
-      <div id="area-controls">
-        <button id="draw-area" title="Click-drag on the map to draw">+ Area</button>
+      <div id="daybar-spacer"></div>
+
+      <label class="toggle">
+        <input type="checkbox" id="show-raw">
+        <span>Raw fixes</span>
+      </label>
+      <button id="draw-area" title="Click-drag on the map to draw">+ Area</button>
+    </header>
+
+    <div id="body">
+      <div id="minimap-rail">
+        <canvas id="minimap-canvas"></canvas>
+        <div id="minimap-viewport"></div>
       </div>
 
-      <section id="summary" class="summary"></section>
-      <div id="timeline" class="gantt">
-        <div id="gantt-inner" class="gantt-inner">
-          <div class="ruler"></div>
-          <div class="lane place"></div>
-          <div class="lane events"></div>
+      <div id="track-scroll">
+        <div id="track-inner">
+          <div id="lane-headers"></div>
+          <div id="lane-body">
+            <div id="ruler" class="ruler"></div>
+            <div id="place-layer"></div>
+            <div id="scrub-line" hidden><span id="scrub-chip" class="scrub-chip"></span></div>
+          </div>
         </div>
       </div>
-      <p id="empty" class="empty" hidden>Nothing recorded on this day.</p>
-    </aside>
 
-    <main>
-      <div id="map"></div>
-      <div id="legend">
-        <span class="swatch slow"></span> slow
-        <span class="ramp"></span>
-        <span class="swatch fast"></span> fast
-      </div>
-    </main>
+      <aside id="side">
+        <div id="map-card">
+          <div id="map"></div>
+          <div id="legend">
+            <span class="swatch slow"></span> slow
+            <span class="ramp"></span>
+            <span class="swatch fast"></span> fast
+          </div>
+        </div>
+        <section id="summary" class="summary"></section>
+        <div id="device-legend" class="device-legend"></div>
+        <section id="inspector" class="inspector"></section>
+      </aside>
+
+      <p id="empty" class="empty" hidden>Nothing recorded on this day.</p>
+    </div>
   </div>
 
   <script src="/static/vendor/leaflet.js"></script>
-  <script src="/static/app.js"></script>
+  <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

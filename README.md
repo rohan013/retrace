@@ -26,7 +26,11 @@ app/          the service
   places.py     turning stays into places
   timeline.py   assembling a day
   providers/    one file per phone app; add a file, not a branch
-static/       the web UI
+static/       the web UI — ES modules, no bundler
+  js/layout.js  block geometry: clustering and packing. Pure, no DOM
+  js/track.js   the zoomable day: lanes, blocks, scrubbing
+  js/minimap.js the 24h rail
+  js/mapview.js Leaflet: track, stays, raw fixes, areas
 scripts/      backup, synthetic data
 deploy/       systemd units
 macos/        the MacBook activity daemon — runs on the Mac, not this server
@@ -291,14 +295,45 @@ curl -X POST "https://tracker.<your-domain>/api/v1/locations?format=shortcuts" \
 
 ## Using it
 
-Open `https://tracker.<your-domain>/`.
+Open `https://tracker.<your-domain>/`. One day at a time, every device combined
+into a single view.
+
+**The day is a vertical time axis.** Stays and trips are the *background* — tinted
+bands washing across the full width, each carrying a label that sticks to the top
+of the window while you scroll through it — and device activity draws in lanes on
+top, so a block always reads against where you were at the time. Lanes come from
+whichever event kinds that day actually holds: **Screen** (the frontmost Mac app,
+with the websites visited beside it), **Phone**, **Wi-Fi**, **CarPlay**, **Area**.
+
+**Zoom is the main control**, because the data spans five orders of magnitude: a
+nine-hour stay and a one-second app switch belong on the same axis. `Day · 1h ·
+10m · 1m · 10s` sets the window, `⌘/Ctrl + wheel` zooms about the pointer, `+`/`-`
+step, and **double-clicking any block zooms to fit it**. Plain scrolling scrolls.
+
+At a wide zoom, anything too small to label collapses into a **cluster** — one
+hatched block reading `Google Chrome ×34` — which dissolves back into its
+individual events the moment the zoom makes them readable. Nothing is hidden and
+nothing is faked: a block's size is always its true duration. Event timestamps are
+whole seconds, so `10s` is as fine as the record goes.
+
+Colour is per *subject*, not per lane: Chrome is Chrome-blue on the Mac and on the
+phone, YouTube red, iTerm2 green. macOS internals that take focus without you
+choosing them (`loginwindow`, `coreautha`) sit muted so real apps stand out. Every
+block also carries its own text, so colour never has to be read alone.
 
 - **Arrow keys** or the date field move between days.
-- The sidebar is two lanes on a shared time axis: **Place** (stays and trips)
-  and **Events** (device activity from Shortcuts). **Click** a Place block to
-  focus it on the map — events appear only in the Events lane; **double-click**
-  a stay to name the place. Naming is permanent and applies to every other stay
-  at that spot, past and future — you name somewhere once.
+- **Click** anything — a stay, a trip, one event, a cluster — to fill the
+  inspector: times, duration, fixes, radius, a stay's confidence broken into its
+  five components, and its note. **Rename** a place there, or by double-clicking
+  its map marker. Naming is permanent and applies to every other stay at that
+  spot, past and future — you name somewhere once.
+- **Click a lane header** to collapse it to a density strip and click again to
+  restore it; the choice persists.
+- The **rail down the left edge** is the whole 24 hours at a fixed scale, whatever
+  the track is zoomed to: place bands and a heat strip per lane. Drag its viewport
+  box to scroll, or click anywhere to jump.
+- **Hovering the track** draws a time cursor and walks a marker along the route on
+  the map — scrub down the day to see where you were.
 - An event that spans a place boundary — still on a call as you start driving,
   say — draws as one continuous block crossing it, keeping its own true start
   and end times.
@@ -332,7 +367,7 @@ is detected from its shape.
 |---|---|
 | `POST /api/v1/locations` | ingest — **the only write-open path**, token required |
 | `GET /api/v1/points` | raw fixes, keyset-paginated by `since_id` |
-| `GET /api/v1/days/{date}` | a day assembled: stays and trips on a Place lane, events paired into ranges on an Events lane, plus a summary |
+| `GET /api/v1/days/{date}` | a day assembled: stays and trips, events paired into ranges, and a summary |
 | `GET /api/v1/stays` · `PATCH /api/v1/stays/{id}` | query, name, annotate |
 | `GET /api/v1/trips` | |
 | `GET /api/v1/events` | raw event pings, unpaired — see `/api/v1/days` for the paired view |

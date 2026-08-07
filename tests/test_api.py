@@ -66,6 +66,23 @@ def test_an_unknown_timezone_falls_back_rather_than_erroring(client, conn):
     assert client.get("/api/v1/days/2026-06-01?tz=Mars/Olympus").status_code == 200
 
 
+def test_a_stay_in_the_day_view_carries_its_confidence_breakdown_and_note(client, conn):
+    seed(client, conn)
+    stays = client.get("/api/v1/stays").json()
+    client.patch(f"/api/v1/stays/{stays[0]['id']}", json={"note": "dentist"})
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    day_stays = [i for i in day["items"] if i["type"] == "stay"]
+    assert day_stays, "seed() should produce at least one stay on this day"
+
+    noted = next(s for s in day_stays if s["id"] == stays[0]["id"])
+    assert noted["note"] == "dentist"
+    assert set(noted["confidence_breakdown"]) >= {"dwell", "tightness", "density"}
+
+    other = next(s for s in day_stays if s["id"] != stays[0]["id"])
+    assert other["note"] is None
+
+
 # -- midnight ---------------------------------------------------------------
 
 
