@@ -304,11 +304,13 @@ def test_http_basic_is_accepted_because_owntracks_ios_cannot_set_headers(anon_cl
     assert response.status_code == 200
 
 
-def test_a_query_parameter_token_is_accepted(anon_client):
+def test_a_query_parameter_token_is_refused(anon_client):
+    """uvicorn logs the query string, so a token sent that way lands in the
+    journal in cleartext. It has to be a header."""
     response = anon_client.post(
         f"/api/v1/locations?token={TEST_TOKEN}", json=owntracks_payload()
     )
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def test_ingest_fails_closed_when_no_token_is_configured(anon_client, monkeypatch):

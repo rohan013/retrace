@@ -207,9 +207,9 @@ export function renderRaw(points) {
       .bindPopup(
         `${new Date(p.ts * 1000).toLocaleString()}<br>` +
           `${p.device ? `device ${escapeHTML(p.device)}<br>` : ""}` +
-          `accuracy ${p.accuracy ?? "?"} m &middot; ${p.trigger_type ?? "?"}` +
+          `accuracy ${p.accuracy ?? "?"} m &middot; ${escapeHTML(p.trigger_type ?? "?")}` +
           (p.battery ? `<br>battery ${p.battery}%` : "") +
-          (flagged ? `<br><strong>flagged: ${p.anomaly_reason}</strong>` : "")
+          (flagged ? `<br><strong>flagged: ${escapeHTML(p.anomaly_reason)}</strong>` : "")
       )
       .addTo(group);
   }

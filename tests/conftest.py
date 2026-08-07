@@ -201,11 +201,18 @@ def conn(db_path: str) -> Iterator[sqlite3.Connection]:
         yield connection
 
 
+# Addressed as localhost so the Host allowlist sees a host it knows, putting
+# every request through the same middleware path a local caller takes.
+# TestClient's own default host, "testserver", is one the allowlist rejects
+# whenever PUBLIC_HOSTNAME is configured.
+TEST_BASE_URL = "http://localhost"
+
+
 @pytest.fixture
 def client(db_path: str) -> Iterator[TestClient]:
     from app.main import app
 
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url=TEST_BASE_URL) as test_client:
         test_client.headers.update({"Authorization": f"Bearer {TEST_TOKEN}"})
         yield test_client
 
@@ -215,5 +222,5 @@ def anon_client(db_path: str) -> Iterator[TestClient]:
     """A client with no credentials, for auth tests."""
     from app.main import app
 
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url=TEST_BASE_URL) as test_client:
         yield test_client

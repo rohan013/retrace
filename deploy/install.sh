@@ -32,7 +32,16 @@ if [[ ! -x "$ROOT/.venv/bin/uvicorn" ]]; then
     exit 1
 fi
 
-mkdir -p "$ROOT/data"
+install -d -m 700 "$ROOT/data"
+
+# .env holds INGEST_TOKEN and data/ holds every fix ever recorded, so neither
+# has any business being group- or world-readable. UMask=0077 in the unit
+# governs what the service writes itself; this covers everything else, and
+# re-asserts both every time this script runs.
+echo "== tightening permissions on .env and data/ =="
+chmod 600 "$ROOT/.env"
+find "$ROOT/data" -type d -exec chmod 700 {} +
+find "$ROOT/data" -type f -exec chmod 600 {} +
 
 echo "== installing unit files (sudo) =="
 sudo cp "$ROOT"/deploy/retrace.service "$ROOT"/deploy/retrace-backup.service \

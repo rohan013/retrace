@@ -30,9 +30,15 @@
     <key>KeepAlive</key>
     <true/>
 
+    <!-- ~/Library/Logs is mode 700 and is the standard place for a background
+         helper's log. It matters that the directory is not world-writable:
+         this path is predictable, so anywhere another local account could
+         create it first, they could make it a symlink and have launchd append
+         through it. install.sh rewrites __HOME__ the same way it rewrites the
+         runtime directory above. -->
     <key>StandardOutPath</key>
-    <string>/tmp/retrace-agent.log</string>
+    <string>__HOME__/Library/Logs/retrace-agent.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/retrace-agent.log</string>
+    <string>__HOME__/Library/Logs/retrace-agent.log</string>
 </dict>
 </plist>

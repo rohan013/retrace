@@ -84,8 +84,12 @@ def main() -> int:
     now = datetime.now(timezone.utc)
     daily = args.dest / "daily"
     weekly = args.dest / "weekly"
-    daily.mkdir(parents=True, exist_ok=True)
-    weekly.mkdir(parents=True, exist_ok=True)
+    # An archive is a complete copy of the location history, so the modes are
+    # set explicitly here: this runs both under the timer, where
+    # UMask=0077 in retrace-backup.service governs them, and by hand from a
+    # shell whose umask is usually 002, and only the owner should ever read it.
+    daily.mkdir(parents=True, exist_ok=True, mode=0o700)
+    weekly.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     archive = daily / f"tracker-{now:%Y%m%d}.db.gz"
 
@@ -96,6 +100,7 @@ def main() -> int:
         # failed run never leaves a half-written archive where a good one was.
         with raw.open("rb") as src, gzip.open(archive, "wb", compresslevel=6) as dst:
             shutil.copyfileobj(src, dst)
+        archive.chmod(0o600)
 
     if now.isoweekday() == 7:  # Sunday's copy is also the weekly one
         shutil.copy2(archive, weekly / archive.name)

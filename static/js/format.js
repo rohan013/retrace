@@ -53,10 +53,16 @@ export function hexToRgb(hex) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+// Safe in element content *and* in a quoted attribute. The obvious
+// implementation — set textContent, read innerHTML back — is only safe in the
+// first: HTML serialises text nodes by escaping `& < >` and leaves quotes
+// alone, so a value carrying `"` breaks straight out of `title="…"`. Device
+// names, event subjects and trigger types all arrive from ingest, so both
+// contexts have to hold.
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
 export function escapeHTML(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+  return String(text ?? "").replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 
 export function hourLabel(hourOfDay) {

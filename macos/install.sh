@@ -37,6 +37,9 @@ fi
 echo "== deploying source to $RUNTIME_DIR =="
 mkdir -p "$RUNTIME_DIR"
 cp "$SRC/agent.py" "$SRC/requirements.txt" "$SRC/.env" "$RUNTIME_DIR/"
+# .env carries INGEST_TOKEN and the Cloudflare service-token secret, so it does
+# not inherit whatever mode the copy happened to land on.
+chmod 600 "$RUNTIME_DIR/.env"
 
 if [[ ! -x "$RUNTIME_DIR/.venv/bin/python3" ]]; then
     echo "== creating venv =="
@@ -48,9 +51,10 @@ echo "== installing dependencies =="
 "$RUNTIME_DIR/.venv/bin/pip" install --quiet -r "$RUNTIME_DIR/requirements.txt"
 
 echo "== installing LaunchAgent =="
-mkdir -p "$LAUNCH_AGENTS_DIR"
+mkdir -p "$LAUNCH_AGENTS_DIR" "$HOME/Library/Logs"
 launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_NAME" 2>/dev/null || true
-sed "s#__RUNTIME_DIR__#$RUNTIME_DIR#g" "$SRC/$PLIST_NAME" > "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
+sed -e "s#__RUNTIME_DIR__#$RUNTIME_DIR#g" -e "s#__HOME__#$HOME#g" \
+    "$SRC/$PLIST_NAME" > "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 
 echo
@@ -58,4 +62,4 @@ echo "== status =="
 launchctl list | grep retrace-agent || echo "warning: not showing in launchctl list yet"
 
 echo
-echo "done. tail logs with: tail -f /tmp/retrace-agent.log"
+echo "done. tail logs with: tail -f ~/Library/Logs/retrace-agent.log"

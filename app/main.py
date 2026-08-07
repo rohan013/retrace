@@ -19,6 +19,8 @@ location history back out.
 
 import asyncio
 import contextlib
+import json
+import logging
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,6 +29,7 @@ from typing import Any, Iterator
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import config, db, geo, ingest, places, segment, timeline
 from .auth import require_ingest_token
@@ -38,13 +41,21 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 SWEEP_INTERVAL_SECONDS = 60
 
 
+log = logging.getLogger("retrace.sweep")
+
+
 async def _sweep_forever() -> None:
     while True:
         await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
         try:
             await asyncio.to_thread(sweep_once)
-        except Exception:  # a failed sweep must not kill the loop
-            pass
+        except Exception:
+            # A failed sweep must not kill the loop, but it must not pass
+            # unnoticed either: the dirty marker has already been consumed, so
+            # this window will not be re-derived on its own. `POST
+            # /api/v1/reprocess` rebuilds it -- the log line is the only thing
+            # that says so.
+            log.exception("sweep failed; that window needs a manual reprocess")
 
 
 def sweep_once() -> segment.RebuildResult | None:
@@ -71,12 +82,84 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="retrace", version="0.1.0", lifespan=lifespan)
 
 
+# Everything the UI needs comes from this origin, with two exceptions: map tiles
+# come from OpenStreetMap, and Leaflet's marker shadows are `data:` URIs. Naming
+# those two lets `default-src 'self'` cover the rest, so an injected `<script>`
+# or event handler has nothing it is allowed to execute.
+#
+# `style-src` needs 'unsafe-inline' because track.js and inspector.js build
+# `style="--accent: ..."` attributes inside innerHTML strings. That loosens the
+# style directive alone; the defence here rests on `script-src 'self'`, which
+# is strict.
+CSP = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https://*.tile.openstreetmap.org",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'none'",
+    ]
+)
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "X-Content-Type-Options": "nosniff",
+    # Tiles are fetched by the browser from openstreetmap.org, so without this
+    # every tile request announces the tunnel hostname to a third party.
+    "Referrer-Policy": "no-referrer",
+}
+
+
+# See config.PUBLIC_HOSTNAME for why a loopback-bound service still needs this.
+# Starlette matches on the host with the port stripped, so every local client --
+# curl against 127.0.0.1:8420, a dev instance on another port, the headless
+# browser scripts/inspect_page.py drives -- keeps working untouched.
+if config.PUBLIC_HOSTNAME:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["localhost", "127.0.0.1", config.PUBLIC_HOSTNAME],
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
+
+
 def get_conn() -> Iterator[sqlite3.Connection]:
     with db.connection() as conn:
         yield conn
 
 
 # -- ingest -----------------------------------------------------------------
+
+
+async def _read_capped_body(request: Request) -> bytes | None:
+    """The request body, or None if it is larger than `MAX_INGEST_BYTES`.
+
+    Content-Length is consulted first so an oversize upload is refused without
+    being read at all, and the stream is counted as it arrives as well, because
+    a chunked request declares no length and one that does can lie about it.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > config.MAX_INGEST_BYTES:
+        return None
+
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > config.MAX_INGEST_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @app.post("/api/v1/locations")
@@ -91,9 +174,16 @@ async def post_locations(
     Always answers 200. The endpoint is an idempotent upsert, and OwnTracks treats
     anything else as a failure worth retrying.
     """
+    body = await _read_capped_body(request)
+    if body is None:
+        return JSONResponse(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            content={"detail": f"Body exceeds {config.MAX_INGEST_BYTES} bytes"},
+        )
+
     try:
-        payload = await request.json()
-    except Exception:
+        payload = json.loads(body)
+    except ValueError:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "Body is not valid JSON"}
         )

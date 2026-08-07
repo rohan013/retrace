@@ -29,6 +29,12 @@ ExecStart=/home/rohan/tracker/.venv/bin/uvicorn app.main:app \
 Restart=always
 RestartSec=3
 
+# Steady state is ~40 MB, and a rebuild over the whole history is the only thing
+# that moves it. Capping it means a runaway allocation kills and restarts this
+# service, rather than leaving the kernel's OOM killer to pick a victim
+# elsewhere on the machine.
+MemoryMax=512M
+
 # -- hardening --------------------------------------------------------------
 # The service reads location data and writes one SQLite file. It has no business
 # touching anything else on the machine.

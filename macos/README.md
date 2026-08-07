@@ -343,7 +343,7 @@ cp .env.example .env   # fill in SERVER_URL, INGEST_TOKEN, CF_ACCESS_CLIENT_ID/S
 #    and WorkingDirectory need to point at THIS directory and its venv.
 cp com.rohan.retrace-agent.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.rohan.retrace-agent.plist
-tail -f /tmp/retrace-agent.log
+tail -f ~/Library/Logs/retrace-agent.log
 ```
 
 The Cloudflare Service Token (`CF_ACCESS_CLIENT_ID`/`_SECRET`) is a new one

@@ -40,10 +40,38 @@ def _bool(name: str, default: bool) -> bool:
     return os.environ.get(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _hostname(name: str, default: str) -> str:
+    """A bare hostname, however it was written down.
+
+    Compared against the Host header, which carries no scheme, path or port. A
+    full URL is the natural thing to paste into the .env, and would match
+    nothing -- locking the tunnel out with a 400 -- so those are stripped.
+    """
+    value = _str(name, default).strip()
+    if "//" in value:
+        value = value.split("//", 1)[1]
+    return value.split("/", 1)[0].split(":", 1)[0]
+
+
 INGEST_TOKEN = _str("INGEST_TOKEN", "")
+
+# Largest ingest body accepted. `request.json()` buffers the whole thing before
+# parsing, so without a bound a single request decides how much memory this
+# process uses. Real payloads are a few hundred bytes each and a batch is a few
+# tens of KB, so this leaves several orders of magnitude of headroom.
+MAX_INGEST_BYTES = _int("MAX_INGEST_BYTES", 2 * 1024 * 1024)
 
 HOST = _str("HOST", "127.0.0.1")
 PORT = _int("PORT", 8420)
+
+# The hostname the tunnel routes to this service, e.g. tracker.example.com.
+# Binding to loopback keeps the network out, but a browser running on this
+# machine can still be pointed here by a page that resolves its own hostname to
+# 127.0.0.1 -- at which point the page is same-origin with the API and
+# Cloudflare never sees the request. Naming the hostnames that are allowed to
+# reach it closes that. Left empty, the check is not installed, so an unset
+# value cannot lock the tunnel out.
+PUBLIC_HOSTNAME = _hostname("PUBLIC_HOSTNAME", "")
 
 _db = _str("DB_PATH", "data/tracker.db")
 DB_PATH = str(Path(_db) if Path(_db).is_absolute() else BASE_DIR / _db)

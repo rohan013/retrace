@@ -60,10 +60,11 @@ Run it:
 deploy/install.sh
 ```
 
-Checks `.env` and the venv are actually set up, then installs and starts
-`retrace.service` and `retrace-backup.timer`. Safe to re-run any time the unit
-files change. `deploy/uninstall.sh` stops and removes them again, leaving the
-repo, `.env` and `data/` untouched.
+Checks `.env` and the venv are actually set up, installs and starts
+`retrace.service` and `retrace-backup.timer`, and puts `.env` and `data/` back
+to owner-only permissions — they hold the ingest token and every fix ever
+recorded. Safe to re-run any time the unit files change. `deploy/uninstall.sh`
+stops and removes them again, leaving the repo, `.env` and `data/` untouched.
 
 It listens on `127.0.0.1:8420` only. Nothing reaches it except through the tunnel.
 
@@ -88,6 +89,14 @@ Zero Trust → **Networks → Tunnels** → your tunnel → **Public Hostname** 
 | Subdomain | `tracker` |
 | Domain | your domain |
 | Service | `HTTP` → `localhost:8420` |
+
+Then put that hostname in `.env` as `PUBLIC_HOSTNAME=tracker.<your-domain>` and
+restart. Requests arriving under any other name get a 400, which is what stops a
+web page that resolves its own hostname to `127.0.0.1` from reading the API out
+of a browser running on the server — a request like that never goes near
+Cloudflare, so nothing above this layer would see it. `localhost` and
+`127.0.0.1` are always allowed, so local testing and `scripts/inspect_page.py`
+address it as usual. Leave it empty and the check is not installed at all.
 
 ### 2. Protect the UI
 
@@ -376,6 +385,15 @@ curl -X POST https://tracker.<your-domain>/api/v1/areas \
 Reverse geocoding is **off by default** (`GEOCODING_ENABLED`). It sends your
 coordinates to a public service; turn it on deliberately or not at all.
 
+**The map tiles are the one thing that leaves the box while you use it.** Leaflet
+is vendored and the app makes no other third-party request, but the tiles behind
+the map come from `tile.openstreetmap.org`, so opening a day asks OpenStreetMap
+for imagery covering wherever you were — your home and workplace, at the zoom
+you are looking at them. `Referrer-Policy: no-referrer` keeps your hostname out
+of those requests, and the tile coordinates themselves are the price of a map
+you did not have to host. Serving tiles from this machine is what closes it, and
+that means running a tile server.
+
 ---
 
 ## API
@@ -398,9 +416,10 @@ is detected from its shape.
 | `POST /api/v1/reprocess` | rebuild the derived layer |
 | `GET /healthz` | |
 
-Ingest accepts the token as `Authorization: Bearer <token>`, as an HTTP Basic
-password (what OwnTracks sends), or as `?token=` — OwnTracks iOS can set Basic
-auth but not arbitrary headers.
+Ingest reads the token from a header: `Authorization: Bearer <token>`, or an
+HTTP Basic password, which is what OwnTracks sends — OwnTracks iOS can set Basic
+auth but not arbitrary headers. Keeping it out of the URL keeps it out of
+uvicorn's access log, which records the query string.
 
 Pagination is keyset, not `OFFSET`: an offset scan re-reads every row it skips and
 falls apart once a range runs to hundreds of pages.
@@ -621,6 +640,10 @@ of system shared libraries (`sudo playwright install-deps`, or the equivalent
   in OwnTracks' `httpHeaders` field match the service token exactly (that field
   is single-line — see the setup table above; a real line break where a literal
   `\n` belongs will break it silently).
+- **A `400` in the log**, with `Invalid host header` in the body, means
+  `PUBLIC_HOSTNAME` in `.env` doesn't match the hostname the tunnel routes. It
+  wants the bare name — `tracker.example.com` — and emptying it disables the
+  check while you work out which is which.
 - **A `401` in the log** means the request reached the app but the password in
   OwnTracks doesn't match `INGEST_TOKEN`.
 - **A `200` in the log but no new row in the database** means the payload

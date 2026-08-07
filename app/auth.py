@@ -1,8 +1,12 @@
 """Ingest authentication.
 
-The token can arrive three ways because recorder apps differ in what they can
-set. Some clients can only put a token in the URL; OwnTracks sends HTTP Basic
-credentials. All three are the same secret.
+The token can arrive two ways because recorder apps differ in what they can
+set: an `Authorization: Bearer` header, or HTTP Basic credentials, which is
+what OwnTracks sends. Both carry the same secret.
+
+It is deliberately never read from the query string. uvicorn's access log
+records the full path including the query, so a token that travels that way
+ends up in the journal in cleartext and stays there.
 
 The web UI is not protected here — Cloudflare Access sits in front of it with an
 Allow policy. The ingest path can't use that same policy (a phone can't complete
@@ -19,7 +23,7 @@ import base64
 import binascii
 import secrets
 
-from fastapi import HTTPException, Query, Request, status
+from fastapi import HTTPException, Request, status
 
 from . import config
 
@@ -34,16 +38,16 @@ def _token_from_basic(header: str) -> str | None:
     return password or None
 
 
-def extract_token(request: Request, token_param: str | None = None) -> str | None:
+def extract_token(request: Request) -> str | None:
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization.split(" ", 1)[1].strip() or None
     if authorization.lower().startswith("basic "):
         return _token_from_basic(authorization)
-    return token_param
+    return None
 
 
-def require_ingest_token(request: Request, token: str | None = Query(default=None)) -> None:
+def require_ingest_token(request: Request) -> None:
     """FastAPI dependency guarding every ingest route."""
     expected = config.INGEST_TOKEN
     if not expected:
@@ -54,7 +58,7 @@ def require_ingest_token(request: Request, token: str | None = Query(default=Non
             detail="INGEST_TOKEN is not configured on the server",
         )
 
-    supplied = extract_token(request, token)
+    supplied = extract_token(request)
     if not supplied or not secrets.compare_digest(supplied, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
