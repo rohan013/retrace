@@ -400,6 +400,7 @@ def assemble_day(
                 "end_ts": r["end_ts"],
                 "visible_start_ts": visible_start,
                 "visible_end_ts": visible_end,
+                "visible_duration_s": visible_end - visible_start,
                 "ongoing": r["ongoing"],
                 "continuation_of": (
                     _local_date(r["start_ts"], tz_name) if r["start_ts"] < day_start else None
