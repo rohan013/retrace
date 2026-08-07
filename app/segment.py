@@ -331,24 +331,35 @@ def _load_points(conn: sqlite3.Connection, from_ts: int) -> list[SegPoint]:
 
 
 def _window_start(conn: sqlite3.Connection, requested: int) -> int:
-    """Widen the window so no derived row is half-rebuilt.
+    """Widen the window until nothing straddles its edge.
 
-    A stay or trip that started before the requested point but ends inside it
-    would otherwise be deleted and then rebuilt from only its tail. Reaching back
-    to its true start keeps the rebuild whole.
+    A stay or trip that started before the requested point but runs past it would
+    otherwise be deleted and then rebuilt from only its tail. Reaching back to its
+    true start keeps the rebuild whole — and reaching back can itself pull in
+    another device's row that straddles the new edge, so this repeats until the
+    edge is clean. One round settles it for a single device.
+
+    Rows that merely *end* at the edge are deliberately left outside. They abut
+    the window without overlapping it, and their points are not loaded, so
+    deleting one destroys it: this is what used to swallow the trip arriving at
+    the window's first stay every time new fixes came in.
     """
-    row = conn.execute(
-        """
-        SELECT MIN(start_ts) AS earliest FROM (
-            SELECT start_ts FROM stays WHERE end_ts >= :ts
-            UNION ALL
-            SELECT start_ts FROM trips WHERE end_ts >= :ts
-        )
-        """,
-        {"ts": requested},
-    ).fetchone()
-    earliest = row["earliest"] if row else None
-    return min(requested, earliest) if earliest is not None else requested
+    window = requested
+    while True:
+        row = conn.execute(
+            """
+            SELECT MIN(start_ts) AS earliest FROM (
+                SELECT start_ts FROM stays WHERE end_ts > :ts
+                UNION ALL
+                SELECT start_ts FROM trips WHERE end_ts > :ts
+            )
+            """,
+            {"ts": window},
+        ).fetchone()
+        earliest = row["earliest"] if row else None
+        if earliest is None or earliest >= window:
+            return window
+        window = earliest
 
 
 def rebuild(conn: sqlite3.Connection, from_ts: int | None = None) -> RebuildResult:
@@ -361,32 +372,38 @@ def rebuild(conn: sqlite3.Connection, from_ts: int | None = None) -> RebuildResu
 
     conn.execute("BEGIN")
     try:
-        conn.execute("DELETE FROM trips WHERE end_ts >= ?", (window_start,))
-        conn.execute("DELETE FROM stays WHERE end_ts >= ?", (window_start,))
+        # Exactly the rows the sweep below can reproduce: `_window_start`
+        # guarantees nothing straddles the edge, so "ends after it" and "starts
+        # at or after it" select the same rows.
+        conn.execute("DELETE FROM trips WHERE end_ts > ?", (window_start,))
+        conn.execute("DELETE FROM stays WHERE end_ts > ?", (window_start,))
 
         points = _load_points(conn, window_start)
         result = RebuildResult(window_start=window_start)
 
-        flags = quality.apply(
-            conn,
-            [
-                quality.QualityPoint(
-                    id=p.id, ts=p.ts, lat=p.lat, lon=p.lon, accuracy=p.accuracy
-                )
-                for p in points
-            ],
-        )
-        result.flagged = len(flags)
-
-        trusted = [p for p in points if p.id not in flags]
-
         by_device: dict[str, list[SegPoint]] = {}
-        for point in trusted:
+        for point in points:
             by_device.setdefault(point.device, []).append(point)
 
         for device, device_points in by_device.items():
-            stays = detect_stays(device_points)
-            trips = detect_trips(device_points, stays)
+            # Quality is judged one device at a time. The detour test reads a
+            # run of fixes as a single journey, so two devices spliced into one
+            # stream put an impossible jump at the seam and the sweep flags the
+            # innocent fixes on the far side of it.
+            flags = quality.apply(
+                conn,
+                [
+                    quality.QualityPoint(
+                        id=p.id, ts=p.ts, lat=p.lat, lon=p.lon, accuracy=p.accuracy
+                    )
+                    for p in device_points
+                ],
+            )
+            result.flagged += len(flags)
+
+            trusted = [p for p in device_points if p.id not in flags]
+            stays = detect_stays(trusted)
+            trips = detect_trips(trusted, stays)
             stay_ids = _insert_stays(conn, stays)
             _insert_trips(conn, trips, stay_ids)
             result.stays += len(stays)

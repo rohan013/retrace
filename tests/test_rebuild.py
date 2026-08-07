@@ -9,7 +9,7 @@ with a stay id cannot do.
 
 import pytest
 
-from app import db, ingest, segment
+from app import config, db, ingest, segment
 
 from .conftest import BASE_TS, HOME, Track, offset_m
 
@@ -161,6 +161,48 @@ def test_a_stay_overlapping_the_window_edge_is_rebuilt_whole(conn):
     assert len(rebuilt) == 1
     assert rebuilt[0]["start_ts"] == original["start_ts"]
     assert rebuilt[0]["point_count"] == original["point_count"]
+
+
+def test_the_trip_arriving_at_the_window_survives_an_incremental_rebuild(conn):
+    """A trip ends exactly where the next stay begins, and that is the window edge.
+
+    Deleting everything ending at or after the edge takes that trip with it, and
+    its fixes sit before the edge so the sweep cannot put it back — the commute
+    into the day's last stay silently disappears on every ingest.
+    """
+    Track().stay(hours=2).move_to(OFFICE, speed_mps=12).stay(hours=4).insert(conn)
+    segment.rebuild(conn)
+
+    before = snapshot(conn)
+    assert len(before[1]) == 1
+
+    # A rebuild aimed at the tail of the last stay: its window reaches back to
+    # that stay's start, which is the arriving trip's end.
+    last_stay_start = conn.execute(
+        "SELECT MAX(start_ts) AS ts FROM stays"
+    ).fetchone()["ts"]
+    segment.rebuild(conn, from_ts=last_stay_start + config.REBUILD_LOOKBACK_SECONDS)
+
+    assert snapshot(conn) == before
+
+
+def test_one_devices_fixes_are_never_judged_against_anothers(conn):
+    """Two devices are two journeys, and the seam between them is not a teleport.
+
+    Fixes load ordered by device then time, so a device whose name sorts first
+    but whose data is *newer* leaves the seam running backwards in time. The
+    detour test reads that as an impossible jump and flags the perfectly good
+    fixes on the far side of it — a whole run of them, since it widens until the
+    jump goes away.
+    """
+    Track(device="phone", start_ts=BASE_TS + 200_000).stay(hours=2).insert(conn)
+    Track(device="watch", origin=OFFICE, start_ts=BASE_TS).stay(hours=2).insert(conn)
+
+    result = segment.rebuild(conn)
+
+    assert result.flagged == 0
+    assert conn.execute("SELECT COUNT(*) AS n FROM points WHERE anomaly = 1").fetchone()["n"] == 0
+    assert conn.execute("SELECT COUNT(*) AS n FROM stays").fetchone()["n"] == 2
 
 
 def test_the_cursor_advances_to_the_latest_point(conn):
