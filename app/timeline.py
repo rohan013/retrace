@@ -384,8 +384,15 @@ def assemble_day(
 
     event_ranges, event_points = _pair_events(conn, day_start, day_end, device)
 
+    now_ts = int(time.time())
     for r in event_ranges:
-        clipped = _clip(r["start_ts"], r["end_ts"] or day_end, day_start, day_end)
+        # A genuinely open range (no end ping yet) has only actually happened up
+        # to now, not to the end of the calendar day -- clipping it to day_end
+        # instead would draw it running into hours that haven't occurred yet on
+        # a day still in progress. On a past day now_ts > day_end, so this is a
+        # no-op and it clips to day_end exactly as before.
+        clip_end = r["end_ts"] if r["end_ts"] is not None else min(day_end, now_ts)
+        clipped = _clip(r["start_ts"], clip_end, day_start, day_end)
         if clipped is None:
             continue
         visible_start, visible_end, _ = clipped
