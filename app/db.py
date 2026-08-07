@@ -200,7 +200,7 @@ def _raw_connect(path: str) -> sqlite3.Connection:
 
 
 @contextmanager
-def connection(path: str | None = None) -> Generator[sqlite3.Connection]:
+def connection(path: str | None = None) -> Generator[sqlite3.Connection, None, None]:
     """A connection with WAL and foreign keys enabled."""
     conn = _raw_connect(path or config.DB_PATH)
     try:
