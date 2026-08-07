@@ -155,9 +155,7 @@ class ActivityTracker:
         if new_name == self.current_app_name:
             return  # spurious re-activation of the same app -- not a real switch
 
-        old_name, old_bundle = self.current_app_name, self.current_app_bundle
-        if old_name is not None:
-            self.emit("focus", value="end", subject=old_name)
+        old_bundle = self.current_app_bundle
 
         # Closing site tracking here, before app-level state flips, keeps
         # this one code path the single source of truth for "focus left a
@@ -200,16 +198,13 @@ class ActivityTracker:
         while True:
             try:
                 url, mode = get_active_tab(bundle_id)
-                site = None if mode == "incognito" else domain_of(url)
+                site = "incognito" if mode == "incognito" else (domain_of(url) or "no tab")
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError):
-                site = None  # e.g. front window is a downloads popup, not a tab
+                site = "no tab"  # e.g. front window is a downloads popup, not a tab
 
             with self.state_lock:
                 if site != self.current_site:
-                    if self.current_site is not None:
-                        self.emit("site", value="end", subject=self.current_site)
-                    if site is not None:
-                        self.emit("site", value="start", subject=site)
+                    self.emit("site", value="start", subject=site)
                     self.current_site = site
 
             if poll_stop.wait(POLL_INTERVAL_SECONDS):

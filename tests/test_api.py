@@ -340,8 +340,10 @@ def test_session_a_redundant_lock_strands_as_a_flagged_point(client, conn):
 
 
 def test_focus_switching_apps_closes_the_previous_and_opens_the_next(client, conn):
+    """The daemon only ever sends 'start' -- the previous app's end is
+    inferred from the next one's start, since exactly one app is ever
+    frontmost."""
     insert_event(conn, BASE_TS, "focus", "start", subject="Terminal", device="macbook")
-    insert_event(conn, BASE_TS + 120, "focus", "end", subject="Terminal", device="macbook")
     insert_event(conn, BASE_TS + 120, "focus", "start", subject="Safari", device="macbook")
 
     day = client.get("/api/v1/days/2026-06-01").json()
@@ -358,16 +360,14 @@ def test_focus_switching_apps_closes_the_previous_and_opens_the_next(client, con
     assert ranges[1]["ongoing"] is True
 
 
-def test_site_domain_switch_with_a_gap_emits_no_site_during_it(client, conn):
-    """The gap stands in for an incognito window: the daemon emits nothing
-    while mode == 'incognito', so no 'site' event exists for that stretch."""
+def test_site_switch_into_and_out_of_incognito_is_three_adjacent_ranges(client, conn):
+    """incognito is its own subject, not a gap: the daemon sends 'start' for
+    it same as any domain, and each new site implicitly closes the
+    previous one -- no 'end' pings mid-session at all."""
     insert_event(conn, BASE_TS, "site", "start", subject="github.com", device="macbook")
-    insert_event(conn, BASE_TS + 300, "site", "end", subject="github.com", device="macbook")
+    insert_event(conn, BASE_TS + 300, "site", "start", subject="incognito", device="macbook")
     insert_event(
         conn, BASE_TS + 900, "site", "start", subject="news.ycombinator.com", device="macbook"
-    )
-    insert_event(
-        conn, BASE_TS + 1200, "site", "end", subject="news.ycombinator.com", device="macbook"
     )
 
     day = client.get("/api/v1/days/2026-06-01").json()
@@ -376,8 +376,35 @@ def test_site_domain_switch_with_a_gap_emits_no_site_during_it(client, conn):
         key=lambda e: e["start_ts"],
     )
 
-    assert {r["subject"] for r in ranges} == {"github.com", "news.ycombinator.com"}
-    assert ranges[0]["end_ts"] < ranges[1]["start_ts"]
+    assert [r["subject"] for r in ranges] == ["github.com", "incognito", "news.ycombinator.com"]
+    assert ranges[0]["end_ts"] == ranges[1]["start_ts"] == BASE_TS + 300
+    assert ranges[1]["end_ts"] == ranges[2]["start_ts"] == BASE_TS + 900
+    assert ranges[2]["ongoing"] is True
+
+
+def test_site_end_on_leaving_the_browser_does_not_stretch_to_a_later_start(client, conn):
+    """Leaving the browser entirely still sends one explicit 'end' -- there's
+    no next site ping to infer that boundary from. It must close the range
+    there, not get swallowed by whatever site starts much later in a
+    completely different browsing session."""
+    insert_event(conn, BASE_TS, "site", "start", subject="github.com", device="macbook")
+    insert_event(conn, BASE_TS + 300, "site", "end", subject="github.com", device="macbook")
+    insert_event(
+        conn, BASE_TS + 7200, "site", "start", subject="news.ycombinator.com", device="macbook"
+    )
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = sorted(
+        (i for i in day["items"] if i["type"] == "event" and i["kind"] == "site"),
+        key=lambda e: e["start_ts"],
+    )
+
+    assert len(ranges) == 2
+    assert ranges[0]["subject"] == "github.com"
+    assert ranges[0]["end_ts"] == BASE_TS + 300
+    assert ranges[0]["ongoing"] is False
+    assert ranges[1]["subject"] == "news.ycombinator.com"
+    assert ranges[1]["ongoing"] is True
 
 
 def test_a_device_that_only_sends_events_still_appears_in_the_device_list(client, conn):

@@ -263,15 +263,25 @@ phone:
 | Signal | `kind` | `value` | `subject` |
 |---|---|---|---|
 | Screen unlock/wake vs. lock/sleep | `session` | `unlock` / `lock` | — |
-| Frontmost app changes | `focus` | `start` / `end` | the app's name |
-| Active tab's site, while a tracked browser is frontmost | `site` | `start` / `end` | bare domain, e.g. `github.com` |
+| Frontmost app changes | `focus` | `start` | the app's name |
+| Active tab's site, while a tracked browser is frontmost | `site` | `start` (`end` only when the browser loses focus) | bare domain e.g. `github.com`, or `incognito` / `no tab` |
+
+Only one app is ever frontmost and only one site is ever current, so both
+signals send just a `start` ping on each change — the server infers the
+previous one's end from it, rather than the daemon sending an explicit `end`
+for something it already knows is over. `site` is the one exception: leaving
+the browser entirely has no next `site` ping to infer a boundary from, so
+that transition still gets an explicit `end`.
 
 Site-tracking covers Chrome, Brave, Edge and Arc — the Chromium family
-exposes a `mode` property (`"normal"`/`"incognito"`) via AppleScript, so
-private windows are excluded cleanly: the daemon records no `site` event at
-all while the active window is incognito. Safari and Firefox aren't
-covered — Safari has no reliably scriptable way to detect a private window,
-and Firefox has no AppleScript dictionary at all.
+exposes a `mode` property (`"normal"`/`"incognito"`) via AppleScript.
+Incognito windows aren't skipped, they're recorded as their own subject:
+browsing privately posts `site`/`start` with subject `incognito` rather than
+a domain, so no URL is ever logged, but the fact of private browsing, and
+its duration, is. `no tab` covers the same case for a front window with
+nothing scriptable to read, e.g. a downloads popup. Safari and Firefox
+aren't covered — Safari has no reliably scriptable way to detect a private
+window, and Firefox has no AppleScript dictionary at all.
 
 Unlike the iPhone, which needs one Shortcuts automation per app it tracks,
 the Mac daemon observes every focus change through a single macOS

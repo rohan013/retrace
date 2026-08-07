@@ -37,6 +37,16 @@ _RANGE_KINDS: dict[str, tuple[str, str]] = {
     "site": ("start", "end"),
 }
 
+# Kinds where at most one subject is ever open per device, unlike e.g. "app"
+# where two iPhone apps can legitimately be open at once. These pair on
+# (device, kind) alone: a "start" implicitly closes whatever subject was
+# previously open, rather than requiring an explicit end for that subject.
+# focus always has exactly one frontmost app, so the MacBook daemon never
+# sends an explicit "end" at all. site is the same except when a tracked
+# browser loses focus entirely, which still sends one explicit "end" since
+# there's no next site ping to infer that boundary from.
+_EXCLUSIVE_KINDS = {"focus", "site"}
+
 # Bounds how far before a day's start to look for an unmatched "start" ping
 # that might still be open (e.g. connected to CarPlay just before midnight on
 # a long drive), keeping the query cheap regardless of how much event history
@@ -123,15 +133,39 @@ def _notes_by_anchor(
     return {(r["device"], r["anchor_ts"]): r["note"] for r in rows}
 
 
+def _event_range(
+    dev: str | None,
+    kind: str,
+    open_row: sqlite3.Row,
+    end_ts: int | None,
+    end_id: int | None,
+) -> dict[str, Any]:
+    return {
+        "device": dev,
+        "kind": kind,
+        "subject": open_row["subject"],
+        "start_ts": open_row["ts"],
+        "end_ts": end_ts,
+        "ongoing": end_ts is None,
+        "start_id": open_row["id"],
+        "end_id": end_id,
+    }
+
+
 def _pair_events(
     conn: sqlite3.Connection, day_start: int, day_end: int, device: str | None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Turn raw start/end pings into ranges, per (device, kind, subject).
+    """Turn raw start/end pings into ranges.
 
     Everything in the events table is a point observation — Shortcuts reports
     each transition as it happens. Pairing turns that into a duration here, on
     read, the same way segmentation happens outside of points: the raw layer
     stays a dumb, replayable log of pings.
+
+    Most kinds match same-subject start/end pings, grouped by (device, kind,
+    subject) — several subjects can be open at once (e.g. two iPhone apps).
+    Kinds in _EXCLUSIVE_KINDS group by (device, kind) alone instead: a "start"
+    implicitly closes whichever subject was previously open.
     """
     params: list[Any] = [day_start - EVENT_LOOKBACK_SECONDS, day_end]
     query = "SELECT * FROM events WHERE ts >= ? AND ts < ?"
@@ -141,14 +175,43 @@ def _pair_events(
     query += " ORDER BY ts"
     rows = conn.execute(query, params).fetchall()
 
-    groups: dict[tuple[str | None, str, str | None], list[sqlite3.Row]] = {}
+    exclusive_groups: dict[tuple[str | None, str], list[sqlite3.Row]] = {}
+    subject_groups: dict[tuple[str | None, str, str | None], list[sqlite3.Row]] = {}
     for row in rows:
-        groups.setdefault((row["device"], row["kind"], row["subject"]), []).append(row)
+        if row["kind"] in _EXCLUSIVE_KINDS:
+            exclusive_groups.setdefault((row["device"], row["kind"]), []).append(row)
+        else:
+            subject_groups.setdefault(
+                (row["device"], row["kind"], row["subject"]), []
+            ).append(row)
 
     ranges: list[dict[str, Any]] = []
     points: list[dict[str, Any]] = []
 
-    for (dev, kind, subject), events in groups.items():
+    for (dev, kind), events in exclusive_groups.items():
+        start_value, end_value = _RANGE_KINDS[kind]
+        open_row = None
+        for row in events:
+            value = row["value_text"]
+            if value == start_value:
+                if open_row is not None:
+                    if row["subject"] == open_row["subject"]:
+                        continue  # repeat start for the same subject -- noise
+                    ranges.append(_event_range(dev, kind, open_row, row["ts"], row["id"]))
+                open_row = row
+            elif value == end_value:
+                if open_row is not None:
+                    ranges.append(_event_range(dev, kind, open_row, row["ts"], row["id"]))
+                    open_row = None
+                else:
+                    points.append({**dict(row), "flagged": True})
+            else:
+                points.append({**dict(row), "flagged": True})
+
+        if open_row is not None:
+            ranges.append(_event_range(dev, kind, open_row, None, None))
+
+    for (dev, kind, subject), events in subject_groups.items():
         pair = _RANGE_KINDS.get(kind)
         if pair is None:
             points.extend({**dict(r), "flagged": False} for r in events)
@@ -162,18 +225,7 @@ def _pair_events(
                 if open_row is None:  # a repeat "start" while already open is noise
                     open_row = row
             elif value == end_value and open_row is not None:
-                ranges.append(
-                    {
-                        "device": dev,
-                        "kind": kind,
-                        "subject": subject,
-                        "start_ts": open_row["ts"],
-                        "end_ts": row["ts"],
-                        "ongoing": False,
-                        "start_id": open_row["id"],
-                        "end_id": row["id"],
-                    }
-                )
+                ranges.append(_event_range(dev, kind, open_row, row["ts"], row["id"]))
                 open_row = None
             else:
                 # an end with no open start, or an unrecognised value_text --
@@ -181,18 +233,7 @@ def _pair_events(
                 points.append({**dict(row), "flagged": True})
 
         if open_row is not None:
-            ranges.append(
-                {
-                    "device": dev,
-                    "kind": kind,
-                    "subject": subject,
-                    "start_ts": open_row["ts"],
-                    "end_ts": None,
-                    "ongoing": True,
-                    "start_id": open_row["id"],
-                    "end_id": None,
-                }
-            )
+            ranges.append(_event_range(dev, kind, open_row, None, None))
 
     return ranges, points
 
