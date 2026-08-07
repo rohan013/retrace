@@ -339,6 +339,10 @@ with the websites visited beside it), **Phone**, **Wi-Fi**, **CarPlay**, **Area*
 nine-hour stay and a one-second app switch belong on the same axis. `Day · 1h ·
 10m · 1m · 10s` sets the window, `⌘/Ctrl + wheel` zooms about the pointer, `+`/`-`
 step, and **double-clicking any block zooms to fit it**. Plain scrolling scrolls.
+A preset jumps to whatever is selected, or to the activity nearest wherever you're
+already looking, rather than the raw center of the current view — so `10m` never
+strands you in an empty hour. The ruler's own tick resolution follows the zoom,
+from hourly marks down to every 10 seconds at the deepest level.
 
 At a wide zoom, anything too small to label collapses into a **cluster** — one
 hatched block reading `Google Chrome ×34` — which dissolves back into its

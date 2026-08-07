@@ -10,12 +10,13 @@ import {
   duration,
   escapeHTML,
   hexToRgb,
-  hourLabel,
   isSystemSubject,
   laneMeta,
   laneTitle,
   placeHue,
   subjectColor,
+  tickInterval,
+  tickLabel,
 } from "./format.js";
 import { FULL_LABEL_MIN_PX, LABEL_MIN_PX, densityBuckets, layoutLane, yFor as layoutYFor } from "./layout.js";
 import * as mapview from "./mapview.js";
@@ -123,7 +124,7 @@ export function applyPreset(name) {
   }
   const minutes = PRESET_MINUTES[name];
   if (!minutes) return;
-  setZoom(viewportHeight() / minutes, { anchorFrac: 0.5 });
+  setZoom(viewportHeight() / minutes, anchorTimestamp());
 }
 
 export function zoomStep(dir) {
@@ -184,8 +185,22 @@ function onWheel(e) {
   setZoom(pxPerMinute * factor, { anchorTs, anchorFrac: frac });
 }
 
+let rulerRaf = null;
+
+// Scroll fires far more often than a render() does, so the ruler's own redraw
+// is rAF-throttled here rather than run inline — mirrors the pattern already
+// used for the scrub cursor below.
+function scheduleRulerUpdate() {
+  if (rulerRaf) return;
+  rulerRaf = requestAnimationFrame(() => {
+    rulerRaf = null;
+    renderRuler();
+  });
+}
+
 function onScroll() {
   minimap?.setViewport(trackScroll.scrollTop, viewportHeight(), contentHeight);
+  scheduleRulerUpdate();
 }
 
 function itemSpan(block) {
@@ -193,6 +208,38 @@ function itemSpan(block) {
   const starts = items.map((i) => i.visible_start_ts);
   const ends = items.map((i) => i.visible_end_ts ?? i.visible_start_ts);
   return { start: Math.min(...starts), end: Math.max(...ends) };
+}
+
+// How far a timestamp sits from an item's span — 0 when it falls inside.
+function distanceToItem(item, ts) {
+  const start = item.visible_start_ts;
+  const end = item.visible_end_ts ?? start;
+  if (ts >= start && ts <= end) return 0;
+  return Math.min(Math.abs(ts - start), Math.abs(ts - end));
+}
+
+// Where a preset should zoom to: the current selection's start if there is one,
+// otherwise wherever real activity is nearest the viewport's current center.
+// Anchoring on the raw center (the old behavior) is what let `10m` land on a
+// random empty hour — an empty patch of the day has nothing to zoom in on.
+function anchorTimestamp() {
+  if (selection) {
+    const { start } = itemSpan(selection);
+    return { anchorTs: start, anchorFrac: 0.35 };
+  }
+  if (!day.items.length) return { anchorFrac: 0.5 };
+  const center = centerTimestamp(0.5);
+  let nearest = day.items[0];
+  let bestDist = distanceToItem(nearest, center);
+  for (const item of day.items) {
+    const d = distanceToItem(item, center);
+    if (d < bestDist) {
+      bestDist = d;
+      nearest = item;
+    }
+  }
+  if (bestDist === 0) return { anchorFrac: 0.5 };
+  return { anchorTs: nearest.visible_start_ts, anchorFrac: 0.35 };
 }
 
 function zoomToFit(block) {
@@ -319,15 +366,27 @@ function toggleCollapse(lane) {
   onScroll();
 }
 
+// Ticks step from hourly down to 10s as pxPerMinute grows (tickInterval), and
+// are windowed to roughly the visible scroll range — at the deepest zoom a full
+// day is 8,640 ten-second ticks, and almost none of them are ever on screen.
 function renderRuler() {
   rulerEl.innerHTML = "";
   rulerEl.style.height = `${contentHeight}px`;
-  const totalMinutes = (day.end_ts - day.start_ts) / 60;
-  const hours = Math.ceil(totalMinutes / 60);
-  for (let h = 0; h <= hours; h++) {
+  if (!day) return;
+
+  const interval = tickInterval(pxPerMinute);
+  const pxPerTick = (interval / 60) * pxPerMinute;
+  const totalTicks = Math.ceil((day.end_ts - day.start_ts) / interval);
+  const margin = viewportHeight();
+  const visTop = Math.max(0, trackScroll.scrollTop - margin);
+  const visBottom = Math.min(contentHeight, trackScroll.scrollTop + viewportHeight() + margin);
+  const startIdx = Math.max(0, Math.floor(visTop / pxPerTick));
+  const endIdx = Math.min(totalTicks, Math.ceil(visBottom / pxPerTick));
+
+  for (let idx = startIdx; idx <= endIdx; idx++) {
     const tick = el("div", "tick");
-    tick.style.top = `${h * 60 * pxPerMinute}px`;
-    tick.textContent = hourLabel(h);
+    tick.style.top = `${idx * pxPerTick}px`;
+    tick.textContent = tickLabel(day.start_ts + idx * interval, day.tz, interval);
     rulerEl.appendChild(tick);
   }
 }

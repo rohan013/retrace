@@ -26,10 +26,11 @@ export function shiftDate(iso, days) {
   return d.toISOString().slice(0, 10);
 }
 
-export function clockTime(ts, tz) {
+export function clockTime(ts, tz, withSeconds = false) {
   return new Date(ts * 1000).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
+    second: withSeconds ? "2-digit" : undefined,
     timeZone: tz || undefined,
   });
 }
@@ -65,11 +66,32 @@ export function escapeHTML(text) {
   return String(text ?? "").replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 
-export function hourLabel(hourOfDay) {
-  const h = hourOfDay % 24;
-  const period = h < 12 ? "am" : "pm";
-  const display = h % 12 === 0 ? 12 : h % 12;
-  return `${display}${period}`;
+// The ruler's tick spacing, coarsest-first: whichever interval is small enough
+// that its pixel spacing at the current zoom still clears a readable gap. Floors
+// at 10s — finer than that and the deepest preset (10s) would show no ticks at
+// all — which also happens to match the whole-second resolution events.ts has.
+const TICK_LADDER_S = [21600, 10800, 3600, 1800, 900, 300, 60, 30, 10];
+const TICK_MIN_PX = 34;
+
+export function tickInterval(pxPerMinute) {
+  for (const seconds of [...TICK_LADDER_S].reverse()) {
+    if ((seconds / 60) * pxPerMinute >= TICK_MIN_PX) return seconds;
+  }
+  return TICK_LADDER_S[TICK_LADDER_S.length - 1];
+}
+
+export function tickLabel(ts, tz, intervalSeconds) {
+  if (intervalSeconds >= 3600) {
+    // hourCycle "h23" pins the range to 0-23 regardless of locale, so the am/pm
+    // formatting below stays deterministic instead of depending on the browser's
+    // own am/pm strings (which don't exist at all in 24-hour locales).
+    const fmt = new Intl.DateTimeFormat([], { hour: "numeric", hourCycle: "h23", timeZone: tz || undefined });
+    const hour24 = Number(fmt.format(new Date(ts * 1000)));
+    const period = hour24 < 12 ? "am" : "pm";
+    const display = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    return `${display}${period}`;
+  }
+  return clockTime(ts, tz, intervalSeconds < 60);
 }
 
 export function haversine(a, b) {
