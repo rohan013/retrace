@@ -73,6 +73,18 @@ def _run_one_poll_tick(tracker) -> None:
     tracker._poll_loop()
 
 
+class _FireOnceEvent:
+    """Stand-in for the heartbeat loop's stop_event: False on the first
+    wait() (let one heartbeat check run), True on the second (stop there)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def wait(self, timeout: float) -> bool:
+        self.calls += 1
+        return self.calls > 1
+
+
 def test_switching_apps_emits_only_focus_start(agent_module):
     tracker = agent_module.ActivityTracker()
     emitted = []
@@ -156,3 +168,25 @@ def test_site_switch_never_emits_an_end_mid_session(agent_module):
     _run_one_poll_tick(tracker)
 
     assert emitted == [("site", "start", "news.ycombinator.com")]
+
+
+def test_heartbeat_fires_while_session_is_open(agent_module):
+    tracker = agent_module.ActivityTracker()
+    tracker.session_open = True
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    agent_module._heartbeat_loop(tracker, _FireOnceEvent())
+
+    assert emitted == [("session", "heartbeat", None)]
+
+
+def test_heartbeat_emits_nothing_while_session_is_closed(agent_module):
+    tracker = agent_module.ActivityTracker()
+    tracker.session_open = False
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    agent_module._heartbeat_loop(tracker, _FireOnceEvent())
+
+    assert emitted == []

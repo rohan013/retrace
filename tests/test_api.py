@@ -1,5 +1,7 @@
 """Query API behaviour."""
 
+import time
+
 import pytest
 
 from app import segment
@@ -405,6 +407,53 @@ def test_site_end_on_leaving_the_browser_does_not_stretch_to_a_later_start(clien
     assert ranges[0]["ongoing"] is False
     assert ranges[1]["subject"] == "news.ycombinator.com"
     assert ranges[1]["ongoing"] is True
+
+
+def test_stale_session_with_no_recent_heartbeat_closes_at_the_last_one(client, conn):
+    """An unlock with no matching lock is usually just still ongoing right
+    now. But heartbeats this old relative to wall-clock now mean the daemon
+    stopped reporting -- crash, dead battery, lost network -- so the range
+    closes at the last heartbeat instead of staying open-ended forever."""
+    insert_event(conn, BASE_TS, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 60, "session", "heartbeat", device="macbook")
+    insert_event(conn, BASE_TS + 120, "session", "heartbeat", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = [i for i in day["items"] if i["type"] == "event" and i["kind"] == "session"]
+
+    assert len(ranges) == 1
+    assert ranges[0]["end_ts"] == BASE_TS + 120
+    assert ranges[0]["ongoing"] is False
+
+
+def test_session_with_heartbeats_still_arriving_stays_ongoing(client, conn):
+    now = int(time.time())
+    today = time.strftime("%Y-%m-%d", time.gmtime(now))
+    insert_event(conn, now - 300, "session", "unlock", device="macbook")
+    insert_event(conn, now - 30, "session", "heartbeat", device="macbook")
+
+    day = client.get(f"/api/v1/days/{today}").json()
+    ranges = [i for i in day["items"] if i["type"] == "event" and i["kind"] == "session"]
+
+    assert len(ranges) == 1
+    assert ranges[0]["ongoing"] is True
+    assert ranges[0]["end_ts"] is None
+
+
+def test_session_closed_normally_ignores_stale_heartbeats(client, conn):
+    """A clean lock closes the range regardless of how old the heartbeats
+    before it are -- the heartbeat clamp only ever applies to a range that's
+    still 'ongoing' with nothing else to close it."""
+    insert_event(conn, BASE_TS, "session", "unlock", device="macbook")
+    insert_event(conn, BASE_TS + 60, "session", "heartbeat", device="macbook")
+    insert_event(conn, BASE_TS + 120, "session", "lock", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = [i for i in day["items"] if i["type"] == "event" and i["kind"] == "session"]
+
+    assert len(ranges) == 1
+    assert ranges[0]["end_ts"] == BASE_TS + 120
+    assert ranges[0]["ongoing"] is False
 
 
 def test_a_device_that_only_sends_events_still_appears_in_the_device_list(client, conn):

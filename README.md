@@ -262,7 +262,7 @@ phone:
 
 | Signal | `kind` | `value` | `subject` |
 |---|---|---|---|
-| Screen unlock/wake vs. lock/sleep | `session` | `unlock` / `lock` | — |
+| Screen unlock/wake vs. lock/sleep | `session` | `unlock` / `lock` / `heartbeat` | — |
 | Frontmost app changes | `focus` | `start` | the app's name |
 | Active tab's site, while a tracked browser is frontmost | `site` | `start` (`end` only when the browser loses focus) | bare domain e.g. `github.com`, or `incognito` / `no tab` |
 
@@ -272,6 +272,13 @@ previous one's end from it, rather than the daemon sending an explicit `end`
 for something it already knows is over. `site` is the one exception: leaving
 the browser entirely has no next `site` ping to infer a boundary from, so
 that transition still gets an explicit `end`.
+
+`session` gets a `heartbeat` every minute while unlocked, from a separate
+timer thread. `unlock`/`lock` are each already a clean transition on their
+own, so this isn't for pairing — it's so a crash, dead battery, or lost
+network that leaves an `unlock` with no matching `lock` doesn't stay
+`ongoing` forever. Once heartbeats for a device stop arriving, the server
+closes that range at the last one it got instead of leaving it open-ended.
 
 Site-tracking covers Chrome, Brave, Edge and Arc — the Chromium family
 exposes a `mode` property (`"normal"`/`"incognito"`) via AppleScript.

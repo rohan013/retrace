@@ -55,6 +55,7 @@ POLL_INTERVAL_SECONDS = float(os.environ.get("POLL_INTERVAL_SECONDS", "4"))
 QUEUE_PATH = os.path.join(BASE_DIR, os.environ.get("QUEUE_PATH", "queue.jsonl"))
 
 QUEUE_FLUSH_INTERVAL_SECONDS = 45
+HEARTBEAT_INTERVAL_SECONDS = float(os.environ.get("HEARTBEAT_INTERVAL_SECONDS", "60"))
 POLL_JOIN_TIMEOUT_SECONDS = 3  # longer than OSASCRIPT_TIMEOUT_SECONDS below
 OSASCRIPT_TIMEOUT_SECONDS = 2
 POST_TIMEOUT_SECONDS = 5
@@ -320,6 +321,19 @@ def _flush_timer_loop(tracker: ActivityTracker, stop_event: threading.Event) -> 
             return
 
 
+def _heartbeat_loop(tracker: ActivityTracker, stop_event: threading.Event) -> None:
+    """A `session`/`heartbeat` every minute while unlocked, so a rebuild can
+    tell "still in use" apart from "the agent died and never got to send
+    `lock`" -- session/unlock() only fires once, at unlock, so without this
+    an unclean end (crash, dead battery, lost network) leaves that range
+    open-ended forever."""
+    while True:
+        if stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
+            return
+        if tracker.session_open:
+            tracker.emit("session", value="heartbeat")
+
+
 def main() -> None:
     tracker = ActivityTracker()
     bridge = NotificationBridge.alloc().initWithTracker_(tracker)
@@ -348,6 +362,11 @@ def main() -> None:
     flush_stop = threading.Event()
     threading.Thread(
         target=_flush_timer_loop, args=(tracker, flush_stop), daemon=True
+    ).start()
+
+    heartbeat_stop = threading.Event()
+    threading.Thread(
+        target=_heartbeat_loop, args=(tracker, heartbeat_stop), daemon=True
     ).start()
 
     log(f"agent started, device={DEVICE!r}, tracked_browsers={list(TRACKED_BROWSERS.values())}")

@@ -17,6 +17,7 @@ user was actually in rather than a fixed account setting.
 
 import json
 import sqlite3
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -53,6 +54,15 @@ _EXCLUSIVE_KINDS = {"focus", "site"}
 # has accumulated; none of the current signal kinds realistically stay open
 # longer than this.
 EVENT_LOOKBACK_SECONDS = 3 * 24 * 3600
+
+# The MacBook daemon sends a "session"/"heartbeat" every minute while
+# unlocked (see macos/agent.py), so an "unlock" with no matching "lock" can
+# be told apart from an unclean end (crash, dead battery, lost network) that
+# never got to send one: if the most recent heartbeat is older than this
+# relative to wall-clock now, the laptop isn't being heartbeat-pinged
+# anymore, so the range is closed there instead of left open-ended forever.
+# ~2.5x the daemon's 60s cadence, allowing one missed beat plus jitter.
+HEARTBEAT_STALE_SECONDS = 150
 
 
 def default_timezone(conn: sqlite3.Connection, device: str | None = None) -> str:
@@ -166,6 +176,10 @@ def _pair_events(
     subject) — several subjects can be open at once (e.g. two iPhone apps).
     Kinds in _EXCLUSIVE_KINDS group by (device, kind) alone instead: a "start"
     implicitly closes whichever subject was previously open.
+
+    "session"/"heartbeat" rows are pulled out separately rather than paired at
+    all — they're a liveness signal, not a state transition — and used
+    afterward to close out a stale "unlock" that never got a matching "lock".
     """
     params: list[Any] = [day_start - EVENT_LOOKBACK_SECONDS, day_end]
     query = "SELECT * FROM events WHERE ts >= ? AND ts < ?"
@@ -177,8 +191,13 @@ def _pair_events(
 
     exclusive_groups: dict[tuple[str | None, str], list[sqlite3.Row]] = {}
     subject_groups: dict[tuple[str | None, str, str | None], list[sqlite3.Row]] = {}
+    last_heartbeat: dict[str | None, int] = {}
     for row in rows:
-        if row["kind"] in _EXCLUSIVE_KINDS:
+        if row["kind"] == "session" and row["value_text"] == "heartbeat":
+            dev = row["device"]
+            if dev not in last_heartbeat or row["ts"] > last_heartbeat[dev]:
+                last_heartbeat[dev] = row["ts"]
+        elif row["kind"] in _EXCLUSIVE_KINDS:
             exclusive_groups.setdefault((row["device"], row["kind"]), []).append(row)
         else:
             subject_groups.setdefault(
@@ -234,6 +253,16 @@ def _pair_events(
 
         if open_row is not None:
             ranges.append(_event_range(dev, kind, open_row, None, None))
+
+    now = time.time()
+    for r in ranges:
+        if r["kind"] != "session" or not r["ongoing"]:
+            continue
+        last = last_heartbeat.get(r["device"])
+        if last is None or last <= r["start_ts"] or now - last <= HEARTBEAT_STALE_SECONDS:
+            continue  # no heartbeat since unlock, or still arriving -- genuinely ongoing
+        r["end_ts"] = last
+        r["ongoing"] = False
 
     return ranges, points
 
