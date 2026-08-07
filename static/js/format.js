@@ -1,10 +1,16 @@
 /* Pure formatting helpers and shared reference data — no DOM, no state.
  *
- * The lane palette is the dataviz-validated 8-hue dark categorical set
- * (see palette.md), assigned in a fixed order across the kinds this app
- * actually sees. Lane identity is never carried by color alone: every lane
- * also has a fixed position and a text label, and every block shows its own
- * text — color reinforces, it doesn't replace either.
+ * The lane palette (LANE_META) is the dataviz-validated 8-hue dark
+ * categorical set (see palette.md), assigned in a fixed order across the
+ * seven event kinds this app actually sees. Lane identity is never carried
+ * by color alone: every lane also has a fixed position and a text label,
+ * and every block shows its own text — color reinforces, it doesn't
+ * replace either.
+ *
+ * Places and event subjects are open-ended sets, not a fixed enumerable
+ * list, so they draw from their own much larger hue wheels (PLACE_HUES /
+ * EVENT_HUES below) instead of the 8-slot lane set — see the comment above
+ * those for why.
  */
 
 export const todayISO = () => {
@@ -126,6 +132,31 @@ export const LANE_FALLBACK = { icon: "•", title: "Other", label: (i) => i.subj
 export const laneMeta = (kind) => LANE_META[kind] || LANE_FALLBACK;
 export const laneTitle = (kind) => laneMeta(kind).title || kind;
 
+/* -- hash palettes for open-ended identities ----------------------------------
+ * Places and event subjects aren't a fixed enumerable set like lane kinds —
+ * real use has dozens of distinct places and apps/sites — so hashing them
+ * into the 8-slot lane palette produced frequent collisions, and let a
+ * place's background wash and an unrelated event block land on the exact
+ * same hue. Each gets its own 28-hue OKLCH wheel instead, one offset from
+ * the other so the two pools can never produce an identical hue. Lightness
+ * and chroma are fixed per wheel so hue is the only thing that varies —
+ * unlike the lane palette, these are not hand-tuned for pairwise CVD
+ * separation; that's traded away here for more variety.
+ */
+const HASH_HUE_COUNT = 28;
+const HASH_LIGHTNESS = 60; // %, OKLCH
+const HASH_CHROMA = 0.14; // OKLCH
+
+function hueWheel(count, offsetDeg) {
+  return Array.from(
+    { length: count },
+    (_, i) => `oklch(${HASH_LIGHTNESS}% ${HASH_CHROMA} ${Math.round(offsetDeg + (i * 360) / count)})`
+  );
+}
+
+const PLACE_HUES = hueWheel(HASH_HUE_COUNT, 0);
+const EVENT_HUES = hueWheel(HASH_HUE_COUNT, 180 / HASH_HUE_COUNT);
+
 /* -- per-subject colour ------------------------------------------------------
  * Blocks are coloured by *what* they are (Chrome, YouTube, iTerm2), not by
  * which lane they sit in — a lane of one flat colour told you nothing you
@@ -225,15 +256,16 @@ export function subjectColor(subject, fallbackSeed = "") {
   for (const candidate of key.includes(".") ? domainKeys(key) : [key]) {
     if (SUBJECT_COLORS[candidate]) return SUBJECT_COLORS[candidate];
   }
-  return CATEGORICAL_DARK[hashString(key + fallbackSeed) % CATEGORICAL_DARK.length];
+  return EVENT_HUES[hashString(key + fallbackSeed) % EVENT_HUES.length];
 }
 
 /* -- stable per-place colour -------------------------------------------------
  * Hashed from identity (place/area id), falling back to rounded coordinates
  * for an unnamed-but-located stay, and a neutral grey when nothing to hash.
- * Reuses the same 8-hue set lane accents draw from — the two never appear in
- * a context where confusing one for the other is possible, and every stay
- * block always carries its own text label regardless.
+ * Draws from PLACE_HUES (see above), a wheel disjoint from EVENT_HUES, so a
+ * place's background wash can never land on the same hue as an unrelated
+ * event block — and every stay block always carries its own text label
+ * regardless.
  */
 export function placeHue(stay) {
   const key =
@@ -245,11 +277,21 @@ export function placeHue(stay) {
           ? `coord:${stay.lat.toFixed(3)},${stay.lon.toFixed(3)}`
           : null;
   if (key == null) return "var(--muted)";
-  return CATEGORICAL_DARK[hashString(key) % CATEGORICAL_DARK.length];
+  return PLACE_HUES[hashString(key) % PLACE_HUES.length];
 }
 
+// A plain polynomial rolling hash is linear in the trailing character, so
+// sequential keys (place:1, place:2, place:3 — exactly what autoincrement
+// place/area ids are) would land on a near-linear run of hashes instead of
+// spreading across the wheel. The finalizer (Murmur3's fmix32) scrambles
+// bits after accumulation so adjacent ids land on unrelated hues.
 function hashString(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
   return Math.abs(h);
 }
