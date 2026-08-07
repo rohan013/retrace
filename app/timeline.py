@@ -56,13 +56,19 @@ _EXCLUSIVE_KINDS = {"focus", "site"}
 EVENT_LOOKBACK_SECONDS = 3 * 24 * 3600
 
 # The MacBook daemon sends a "session"/"heartbeat" every minute while
-# unlocked (see macos/agent.py), so an "unlock" with no matching "lock" can
-# be told apart from an unclean end (crash, dead battery, lost network) that
-# never got to send one: if the most recent heartbeat is older than this
-# relative to wall-clock now, the laptop isn't being heartbeat-pinged
-# anymore, so the range is closed there instead of left open-ended forever.
-# ~2.5x the daemon's 60s cadence, allowing one missed beat plus jitter.
+# unlocked (see macos/agent.py). Any range still open when heartbeats for its
+# device go stale -- an "unlock" with no matching "lock", or a focus/site
+# range still open when the machine stopped reporting -- gets closed at the
+# last heartbeat instead of reading as still going on: an unclean end
+# (crash, dead battery, lost network, going to sleep) is not the same as
+# genuinely still ongoing. ~2.5x the daemon's 60s cadence, allowing one
+# missed beat plus jitter.
 HEARTBEAT_STALE_SECONDS = 150
+
+# What's frontmost while the screen is locked -- not something the user is
+# doing, so it isn't shown as a focus block at all; the gap it leaves behind
+# already reads as "laptop not in use".
+_HIDDEN_FOCUS_SUBJECTS = {"loginwindow"}
 
 
 def default_timezone(conn: sqlite3.Connection, device: str | None = None) -> str:
@@ -179,7 +185,10 @@ def _pair_events(
 
     "session"/"heartbeat" rows are pulled out separately rather than paired at
     all — they're a liveness signal, not a state transition — and used
-    afterward to close out a stale "unlock" that never got a matching "lock".
+    afterward to close out any range still open once its device's heartbeats
+    go stale, and "focus"/"loginwindow" ranges (what's frontmost while the
+    screen is locked) are dropped outright, so locked/unreachable time reads
+    as a gap rather than as usage.
     """
     params: list[Any] = [day_start - EVENT_LOOKBACK_SECONDS, day_end]
     query = "SELECT * FROM events WHERE ts >= ? AND ts < ?"
@@ -256,13 +265,17 @@ def _pair_events(
 
     now = time.time()
     for r in ranges:
-        if r["kind"] != "session" or not r["ongoing"]:
+        if not r["ongoing"]:
             continue
         last = last_heartbeat.get(r["device"])
         if last is None or last <= r["start_ts"] or now - last <= HEARTBEAT_STALE_SECONDS:
-            continue  # no heartbeat since unlock, or still arriving -- genuinely ongoing
+            continue  # no heartbeat since it opened, or still arriving -- genuinely ongoing
         r["end_ts"] = last
         r["ongoing"] = False
+
+    ranges = [
+        r for r in ranges if not (r["kind"] == "focus" and r["subject"] in _HIDDEN_FOCUS_SUBJECTS)
+    ]
 
     return ranges, points
 
