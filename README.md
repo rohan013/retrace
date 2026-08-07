@@ -67,6 +67,10 @@ repo, `.env` and `data/` untouched.
 
 It listens on `127.0.0.1:8420` only. Nothing reaches it except through the tunnel.
 
+Claude has scoped, passwordless sudo access to `sudo systemctl restart retrace`
+in this repo (`.claude/settings.local.json` + `/etc/sudoers.d/rohan-retrace`) and
+can restart the service itself after making code changes, without asking first.
+
 ---
 
 ## Cloudflare — the blocking step
@@ -551,6 +555,42 @@ so tuning is measurable rather than a matter of opinion. `test_segment.py` is th
 one that matters: each case in it is a real failure mode (a stay across midnight,
 a gap while stationary versus a gap while travelling, a slow walk, a loop returning
 to its start, a teleport outlier mid-drive, two devices interleaved).
+
+---
+
+## Browser inspection
+
+`scripts/inspect_page.py` drives headless Chromium (the `playwright` package, listed
+in `requirements-dev.txt`) to read a rendered page back as structured text — element
+positions, dataset attributes, trimmed text, and the resolved `--accent` colour each
+block carries — plus any console output and JS errors. It never takes a screenshot;
+an image costs far more tokens than the same information as text, and everything the
+day view renders (block position, colour, label) is readable straight off the DOM.
+
+Point it at a throwaway instance so iterating doesn't disturb the live service or
+depend on whatever today's real data happens to contain:
+
+```bash
+DB_PATH=data/dev.db PORT=8421 INGEST_TOKEN=dev-token \
+  .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8421 &
+
+INGEST_TOKEN=dev-token .venv/bin/python scripts/synth_day.py --url http://127.0.0.1:8421
+
+.venv/bin/python scripts/inspect_page.py --url http://127.0.0.1:8421/ \
+  --fill "#date=2026-06-03" --select ".block" --select ".place-band"
+```
+
+`--fill` and `--click` (both repeatable) drive the page before inspecting — set the
+date input, click a zoom preset, click a block — and `--select` chooses which
+elements to dump (default `.block`). Nothing stops it from pointing at the real
+`retrace.service` on `127.0.0.1:8420` instead, when inspecting real data is actually
+what's useful.
+
+One-time setup: `.venv/bin/pip install -r requirements-dev.txt`, then
+`.venv/bin/playwright install chromium` — this downloads a browser binary
+independent of pip, into `~/.cache/ms-playwright`. Running it also needs a handful
+of system shared libraries (`sudo playwright install-deps`, or the equivalent
+`apt-get install` for `libatk1.0-0t64 libgbm1 ...`), a one-time host-level step.
 
 ---
 
