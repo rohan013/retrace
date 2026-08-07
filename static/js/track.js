@@ -39,7 +39,13 @@ const FOCUS_GROUPS = [
   { key: "site", of: (i) => i.kind === "site", weight: 1 },
 ];
 
+// How often the now-line steps. At the deepest zoom a second is 100px, so a
+// slower tick would visibly lag; a single style write per second is nothing.
+const NOW_TICK_MS = 1000;
+
 let trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl;
+let nowLineEl, nowChipEl;
+let nowTimer = null;
 let minimap = null;
 let onSelect = () => {};
 
@@ -68,9 +74,13 @@ function saveCollapsed() {
 /* -- init --------------------------------------------------------------- */
 
 export function initTrack(refs, opts) {
-  ({ trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl } = refs);
+  ({ trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl,
+     nowLineEl, nowChipEl } = refs);
   minimap = opts.minimap;
   onSelect = opts.onSelect || (() => {});
+
+  if (nowTimer) clearInterval(nowTimer);
+  nowTimer = setInterval(updateNowLine, NOW_TICK_MS);
 
   trackScroll.addEventListener("wheel", onWheel, { passive: false });
   trackScroll.addEventListener("scroll", onScroll, { passive: true });
@@ -236,6 +246,7 @@ function render() {
   renderRuler();
   renderPlaceBackground();
   renderLanes();
+  updateNowLine();
 }
 
 function renderHeaders() {
@@ -323,9 +334,10 @@ function renderRuler() {
 
 function renderLanes() {
   // Clear previous lane columns — everything in bodyEl except the persistent
-  // ruler, place background and scrub line.
+  // ruler, place background, now line and scrub line.
+  const keep = new Set([rulerEl, scrubLineEl, placeLayerEl, nowLineEl]);
   [...bodyEl.children].forEach((child) => {
-    if (child !== rulerEl && child !== scrubLineEl && child !== placeLayerEl) child.remove();
+    if (!keep.has(child)) child.remove();
   });
 
   for (const lane of lanes) {
@@ -341,6 +353,8 @@ function renderLanes() {
       renderExpandedLane(container, lane, items);
     }
   }
+  // Re-appended last so the cursors stay above the lane columns.
+  bodyEl.appendChild(nowLineEl);
   bodyEl.appendChild(scrubLineEl);
 }
 
@@ -590,6 +604,29 @@ function clusterTooltip(block) {
   const when = `${clockTime(start, day.tz)}–${clockTime(end, day.tz)}`;
   const bits = block.histogram.slice(0, 5).map((h) => `${h.key} ×${h.count}`);
   return `${when} · ${block.items.length} items · ${bits.join(", ")}`;
+}
+
+/* -- now line -----------------------------------------------------------------
+ * Lives in the track's content space, so zooming and scrolling carry it along
+ * for free — only the clock moves it. Hidden outright on any day that does not
+ * contain the present moment, rather than pinned to an edge, because a "now"
+ * marker frozen at the top of last Tuesday would be a lie.
+ */
+
+function updateNowLine() {
+  if (!day || !nowLineEl) return;
+
+  const now = Date.now() / 1000;
+  if (now < day.start_ts || now >= day.end_ts) {
+    nowLineEl.hidden = true;
+    minimap?.setNow(null);
+    return;
+  }
+
+  nowLineEl.hidden = false;
+  nowLineEl.style.top = `${layoutYFor(now, day, pxPerMinute)}px`;
+  nowChipEl.textContent = clockTime(now, day.tz);
+  minimap?.setNow((now - day.start_ts) / (day.end_ts - day.start_ts));
 }
 
 /* -- scrub cursor ------------------------------------------------------------ */

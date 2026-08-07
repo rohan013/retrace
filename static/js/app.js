@@ -43,6 +43,7 @@ async function renameStay(item) {
 }
 
 const minimap = createMinimap(el("minimap-canvas"), el("minimap-viewport"), {
+  nowEl: el("minimap-now"),
   onSeek: (scrollTop) => {
     el("track-scroll").scrollTop = scrollTop;
   },
@@ -56,6 +57,8 @@ track.initTrack(
     bodyEl: el("lane-body"),
     rulerEl: el("ruler"),
     placeLayerEl: el("place-layer"),
+    nowLineEl: el("now-line"),
+    nowChipEl: el("now-chip"),
     scrubLineEl: el("scrub-line"),
     scrubChipEl: el("scrub-chip"),
   },

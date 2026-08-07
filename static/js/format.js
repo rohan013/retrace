@@ -137,6 +137,15 @@ export const laneTitle = (kind) => laneMeta(kind).title || kind;
  * worth more here than pairwise ΔE, and it is safe to trade because colour is
  * never the only identity channel — every block carries its own text label and
  * the inspector names the subject in full.
+ *
+ * That trade has a real cost worth knowing about. Brands cluster in the warm
+ * end — YouTube red, Reddit orangered, Cloudflare orange, Claude clay — so
+ * those sit closer together than the ΔE 15 a pure categorical set would hold,
+ * and the labels are what carry them apart. Hues are still chosen to maximise
+ * the *worst* pair within a sub-column, since only same-column blocks are ever
+ * adjacent: Reddit is its true orangered rather than a red-orange (worst pair
+ * 5.9 -> 7.7 against YouTube), and Gemini takes its blue-violet rather than
+ * another Google blue, which clears every site collision outright.
  */
 
 const SUBJECT_COLORS = {
@@ -163,12 +172,12 @@ const SUBJECT_COLORS = {
   finder: "#5A9BFF",
   // iPhone apps
   chrome: "#5A9BFF",
-  reddit: "#FF6A33",
+  reddit: "#E8620C",
   // sites
   "youtube.com": "#FF5252",
-  "reddit.com": "#FF6A33",
+  "reddit.com": "#E8620C",
   "google.com": "#8AB4F8",
-  "gemini.google.com": "#9AA9F5",
+  "gemini.google.com": "#7C6BF5",
   "cloudflare.com": "#F8943F",
   "fidelity.com": "#5CC46A",
   "whoop.com": "#35E8AC",

@@ -14,6 +14,9 @@
   --accent: #3987e5;
   --warn: #fab219;
   --danger: #d03b3b;
+  /* Deliberately not --danger: "now" is a position, not a problem. Kept clear
+     of the app-subject hues so it never reads as one of the blocks. */
+  --now: #ff3b6b;
   --radius: 8px;
 }
 
@@ -213,6 +216,54 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   width: 1px;
   background: var(--line);
   pointer-events: none;
+}
+
+/* -- now line: the current time, ticking. Sits under the scrub cursor so a
+   deliberate hover always wins, and above the lanes so it is never buried. -- */
+
+#now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--now);
+  pointer-events: none;
+  z-index: 3;
+}
+/* The dot is what stops a thin red rule reading as just another block edge. */
+#now-line::before {
+  content: "";
+  position: absolute;
+  left: 44px;
+  top: -3.5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--now);
+  box-shadow: 0 0 6px var(--now);
+}
+.now-chip {
+  position: absolute;
+  left: 2px;
+  top: -8px;
+  background: var(--now);
+  color: #12070a;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+#minimap-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--now);
+  pointer-events: none;
+  z-index: 2;
 }
 
 /* -- scrub cursor -- */

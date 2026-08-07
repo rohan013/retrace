@@ -9,7 +9,7 @@ import { densityBuckets } from "./layout.js";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-export function createMinimap(canvas, viewportEl, { onSeek } = {}) {
+export function createMinimap(canvas, viewportEl, { onSeek, nowEl } = {}) {
   const ctx = canvas.getContext("2d");
   let currentDay = null;
   let lastContentHeight = 0;
@@ -153,6 +153,18 @@ export function createMinimap(canvas, viewportEl, { onSeek } = {}) {
       lastViewportHeight = viewportHeight;
       lastContentHeight = contentHeight;
       updateViewportRect();
+    },
+    /** frac is where "now" falls in the day (0..1), or null when the day being
+     * viewed does not contain it. A DOM tick rather than a canvas draw, so the
+     * clock ticking never costs a full repaint of the rail. */
+    setNow(frac) {
+      if (!nowEl) return;
+      if (frac == null) {
+        nowEl.hidden = true;
+        return;
+      }
+      nowEl.hidden = false;
+      nowEl.style.top = `${clamp(frac, 0, 1) * canvas.getBoundingClientRect().height}px`;
     },
   };
 }
