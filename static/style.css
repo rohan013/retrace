@@ -218,16 +218,6 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .place-name { font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: .01em; }
 .place-detail { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-/* Divides the frontmost-app group from the website group inside the focus lane. */
-.group-divider {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--line);
-  pointer-events: none;
-}
-
 /* -- now line: the current time, ticking. Sits under the scrub cursor so a
    deliberate hover always wins, and above the lanes so it is never buried. -- */
 
@@ -347,6 +337,12 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 .block.event.point { border-left-style: dashed; }
 .block.event.flagged { background: color-mix(in srgb, var(--danger) 30%, var(--panel)); border-left-color: var(--danger); }
+
+/* A site block nested inside its enclosing focus block — the ring is what
+   reads as "boxed inside" rather than just another block abutting it. */
+.block.nested {
+  box-shadow: 0 0 0 1px var(--bg), 0 1px 4px rgba(0, 0, 0, .35);
+}
 
 /* Solid, not diagonal-striped — the old repeating-gradient read as hazard
    tape on ordinary dense data. A stronger mix than a normal block's 26% (the

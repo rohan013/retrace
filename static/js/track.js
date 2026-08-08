@@ -32,13 +32,23 @@ const COLLAPSE_KEY = "retrace.collapsedLanes";
 
 const PRESET_MINUTES = { "1h": 60, "10m": 10, "1m": 1, "10s": 1 / 6 };
 
-// Within the focus lane, the app that was frontmost and the site it was showing
-// sit side by side rather than in separate lanes — a site only ever exists while
-// a browser is focused, so the two belong to one story.
+// A site event's timestamps always fall inside the focus block it happened
+// under (the agent only polls tabs while a tracked browser is frontmost), so
+// site blocks render nested inside their enclosing focus block rather than in
+// a separate lane. Grouping here just keeps a site item and an app item from
+// ever merging into the same cluster — see FOCUS_SPANS below for how each
+// group is actually positioned.
 const FOCUS_GROUPS = [
-  { key: "app", of: (i) => i.kind === "focus", weight: 1.35 },
-  { key: "site", of: (i) => i.kind === "site", weight: 1 },
+  { key: "app", of: (i) => i.kind === "focus" },
+  { key: "site", of: (i) => i.kind === "site" },
 ];
+
+// app fills the whole lane; site insets from both edges so the parent
+// block's colour still frames it, reading as a box nested inside a box.
+const FOCUS_SPANS = {
+  app: { offset: 0, width: 1 },
+  site: { offset: 0.04, width: 0.92 },
+};
 
 // How often the now-line steps. At the deepest zoom a second is 100px, so a
 // slower tick would visibly lag; a single style write per second is nothing.
@@ -444,28 +454,10 @@ function renderCollapsedLane(container, lane, items) {
 function renderExpandedLane(container, lane, items) {
   const groups = laneGroups(lane);
   const blocks = layoutLane(items, day, pxPerMinute, groups);
-
-  // Groups divide the lane's width by weight; sub-columns divide their group.
-  let spans = null;
-  if (groups) {
-    const present = groups.filter((g) => blocks.some((b) => b.group === g.key));
-    const total = present.reduce((s, g) => s + g.weight, 0) || 1;
-    spans = new Map();
-    let offset = 0;
-    for (const g of present) {
-      const width = g.weight / total;
-      spans.set(g.key, { offset, width });
-      offset += width;
-    }
-    if (present.length > 1) {
-      const divider = el("div", "group-divider");
-      divider.style.left = `${spans.get(present[1].key).offset * 100}%`;
-      container.appendChild(divider);
-    }
-  }
+  const spans = lane === "focus" ? FOCUS_SPANS : null;
 
   for (const block of blocks) {
-    container.appendChild(renderBlock(block, lane, spans?.get(block.group)));
+    container.appendChild(renderBlock(block, lane, spans?.[block.group]));
   }
 }
 
@@ -493,7 +485,8 @@ function blockClassName(item) {
   if (item.type === "stay") return "block stay";
   if (item.type === "trip") return "block trip";
   const system = isSystemSubject(item.subject) ? " system" : "";
-  return `block event ${item.shape}${item.ongoing ? " ongoing" : ""}${item.flagged ? " flagged" : ""}${system}`;
+  const nested = item.kind === "site" ? " nested" : "";
+  return `block event ${item.shape}${item.ongoing ? " ongoing" : ""}${item.flagged ? " flagged" : ""}${system}${nested}`;
 }
 
 function clusterAccent(block) {

@@ -179,8 +179,8 @@ export let PLACE_COLOR = CATEGORICAL_DARK[0]; // blue — stays/trips
 
 // `session` is deliberately absent: focus already says what was on screen, so
 // a separate awake/asleep lane was redundant. `site` is absent too — it renders
-// as a sub-column inside the focus lane (see SITE_GROUP in track.js), because a
-// site event only ever happens while a browser is frontmost.
+// nested inside its enclosing focus block (see FOCUS_GROUPS in track.js),
+// because a site event only ever happens while a browser is frontmost.
 export const LANE_ORDER = ["focus", "app", "wifi", "carplay", "geofence"];
 
 export const LANE_META = {

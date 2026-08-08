@@ -164,11 +164,11 @@ function layoutGroup(items, day, pxPerMinute) {
  * each carrying {top, bottom, height, col, cols, group} plus either
  * {kind:"single", item} or {kind:"cluster", items, histogram}.
  *
- * `groups` optionally splits one lane into named side-by-side sections that
- * pack and cluster independently — how the focus lane carries browser sites
- * beside the app that was frontmost, without letting a site and an app ever
- * merge into a single cluster. Pass `[{key, of, weight}]`; `col`/`cols` stay
- * relative to the group, and the caller positions groups using `weight`.
+ * `groups` optionally splits one lane into named sections that pack and
+ * cluster independently — how the focus lane keeps a browser site from ever
+ * merging into the same cluster as the app block it's nested inside. Pass
+ * `[{key, of}]`; `col`/`cols` stay relative to the group, and the caller
+ * decides how each group is positioned.
  */
 export function layoutLane(items, day, pxPerMinute, groups = null) {
   if (!items.length) return [];
