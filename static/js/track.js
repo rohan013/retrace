@@ -54,7 +54,7 @@ const FOCUS_SPANS = {
 // slower tick would visibly lag; a single style write per second is nothing.
 const NOW_TICK_MS = 1000;
 
-let trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl;
+let trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl, sleepLayerEl;
 let nowLineEl, nowChipEl;
 let nowTimer = null;
 let minimap = null;
@@ -86,7 +86,7 @@ function saveCollapsed() {
 
 export function initTrack(refs, opts) {
   ({ trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl,
-     nowLineEl, nowChipEl } = refs);
+     sleepLayerEl, nowLineEl, nowChipEl } = refs);
   minimap = opts.minimap;
   onSelect = opts.onSelect || (() => {});
 
@@ -263,12 +263,16 @@ function zoomToFit(block) {
 
 // Lanes are event kinds only — stays and trips are the background behind them
 // now, not a column of their own. `session` never gets a lane (focus already
-// says what was on screen) and `site` never gets one either (it rides inside
-// the focus lane), but both stay in day.items for the inspector and minimap.
+// says what was on screen), `site` never gets one either (it rides inside the
+// focus lane), and neither does `sleep` (it washes across every lane instead,
+// see renderSleepBackground) — but all three stay in day.items for the
+// inspector and minimap.
 function buildLaneList(d) {
   const kinds = new Set(d.items.filter((i) => i.type === "event").map((i) => i.kind));
   const ordered = LANE_ORDER.filter((k) => kinds.has(k));
-  const extra = [...kinds].filter((k) => !LANE_ORDER.includes(k) && k !== "session" && k !== "site").sort();
+  const extra = [...kinds]
+    .filter((k) => !LANE_ORDER.includes(k) && k !== "session" && k !== "site" && k !== "sleep")
+    .sort();
   const lanes = [...ordered, ...extra];
   // A day with sites but somehow no focus events still needs somewhere to put
   // them rather than dropping them silently.
@@ -302,6 +306,7 @@ function render() {
   renderHeaders();
   renderRuler();
   renderPlaceBackground();
+  renderSleepBackground();
   renderLanes();
   updateNowLine();
 }
@@ -364,6 +369,40 @@ function renderPlaceBackground() {
   }
 }
 
+/* -- sleep overlay ------------------------------------------------------------
+ * Sleep washes across every lane the same way stays/trips do above, rather
+ * than sitting in a column of its own — it only ever covers a fraction of
+ * the day, so a dedicated lane wasted width on every other lane whether or
+ * not that day even had sleep data. Painted after the place background so it
+ * layers on top of it (still under real block content).
+ */
+function renderSleepBackground() {
+  sleepLayerEl.innerHTML = "";
+  sleepLayerEl.style.height = `${contentHeight}px`;
+
+  const meta = laneMeta("sleep");
+  const items = day.items.filter((i) => i.type === "event" && i.kind === "sleep");
+  for (const item of items) {
+    const top = layoutYFor(item.visible_start_ts, day, pxPerMinute);
+    const height = Math.max(2, layoutYFor(item.visible_end_ts, day, pxPerMinute) - top);
+    const band = el("div", "sleep-band");
+    band.style.top = `${top}px`;
+    band.style.height = `${height}px`;
+    band.style.setProperty("--accent", meta.color);
+
+    const key = blockKey({ kind: "single", item });
+    band.dataset.key = key;
+    if (selection?.kind === "single" && blockKey(selection) === key) band.classList.add("active");
+    band.title = tooltipText(item);
+    band.innerHTML = `<span class="sleep-label">${meta.icon} ${duration(item.visible_duration_s)}</span>`;
+
+    band.addEventListener("click", () => setSelection({ kind: "single", item }));
+    band.addEventListener("mouseenter", () => setHover(key, true));
+    band.addEventListener("mouseleave", () => setHover(key, false));
+    sleepLayerEl.appendChild(band);
+  }
+}
+
 function toggleCollapse(lane) {
   if (collapsedLanes.has(lane)) collapsedLanes.delete(lane);
   else collapsedLanes.add(lane);
@@ -400,7 +439,7 @@ function renderRuler() {
 function renderLanes() {
   // Clear previous lane columns — everything in bodyEl except the persistent
   // ruler, place background, now line and scrub line.
-  const keep = new Set([rulerEl, scrubLineEl, placeLayerEl, nowLineEl]);
+  const keep = new Set([rulerEl, scrubLineEl, placeLayerEl, sleepLayerEl, nowLineEl]);
   [...bodyEl.children].forEach((child) => {
     if (!keep.has(child)) child.remove();
   });

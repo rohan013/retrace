@@ -231,6 +231,48 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* -- sleep overlay: washes across every lane for the hours you were asleep,
+   the same way stays/trips do above, rather than sitting in a column of its
+   own. Painted after #place-layer so it layers on top of it. -- */
+
+#sleep-layer {
+  position: absolute;
+  left: 48px;
+  right: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sleep-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  transition: background .12s ease;
+}
+.sleep-band:hover, .sleep-band.hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.sleep-band.active {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.sleep-label {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 65%, var(--panel));
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* -- now line: the current time, ticking. Sits under the scrub cursor so a
    deliberate hover always wins, and above the lanes so it is never buried. -- */
 

@@ -52,6 +52,7 @@ track.initTrack(
     bodyEl: el("lane-body"),
     rulerEl: el("ruler"),
     placeLayerEl: el("place-layer"),
+    sleepLayerEl: el("sleep-layer"),
     nowLineEl: el("now-line"),
     nowChipEl: el("now-chip"),
     scrubLineEl: el("scrub-line"),
