@@ -70,6 +70,13 @@ HEARTBEAT_STALE_SECONDS = 150
 # already reads as "laptop not in use".
 _HIDDEN_FOCUS_SUBJECTS = {"loginwindow"}
 
+# A focus range shorter than this, sandwiched between two ranges of the same
+# subject, is treated as a glance away and back rather than a real switch --
+# e.g. checking a command's output in iTerm2 mid-edit in Code. Only merges
+# when the subject on both sides matches; a genuinely different app taking
+# focus, however briefly, still gets its own block.
+FOCUS_BLIP_SECONDS = 1
+
 
 def default_timezone(conn: sqlite3.Connection, device: str | None = None) -> str:
     """The zone of the most recent stay, which is where the user last was."""
@@ -168,6 +175,29 @@ def _event_range(
     }
 
 
+def _append_range(ranges: list[dict[str, Any]], new: dict[str, Any]) -> None:
+    """Append a closed range, folding it into the previous one if the range
+    between them was a same-subject blip under FOCUS_BLIP_SECONDS -- e.g.
+    checking iTerm2 mid-edit in Code and coming straight back. Runs inline in
+    the same sweep that builds ranges from events, not as a second pass over
+    the result."""
+    if (
+        new["kind"] == "focus"
+        and len(ranges) >= 2
+        and ranges[-1]["end_ts"] is not None
+        and ranges[-1]["end_ts"] - ranges[-1]["start_ts"] < FOCUS_BLIP_SECONDS
+        and ranges[-1]["end_ts"] == new["start_ts"]
+        and ranges[-2]["end_ts"] == ranges[-1]["start_ts"]
+        and ranges[-2]["subject"] == new["subject"]
+    ):
+        ranges.pop()
+        ranges[-1]["end_ts"] = new["end_ts"]
+        ranges[-1]["end_id"] = new["end_id"]
+        ranges[-1]["ongoing"] = new["ongoing"]
+    else:
+        ranges.append(new)
+
+
 def _pair_events(
     conn: sqlite3.Connection, day_start: int, day_end: int, device: str | None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -219,17 +249,22 @@ def _pair_events(
     for (dev, kind), events in exclusive_groups.items():
         start_value, end_value = _RANGE_KINDS[kind]
         open_row = None
+        group_ranges: list[dict[str, Any]] = []
         for row in events:
             value = row["value_text"]
             if value == start_value:
                 if open_row is not None:
                     if row["subject"] == open_row["subject"]:
                         continue  # repeat start for the same subject -- noise
-                    ranges.append(_event_range(dev, kind, open_row, row["ts"], row["id"]))
+                    _append_range(
+                        group_ranges, _event_range(dev, kind, open_row, row["ts"], row["id"])
+                    )
                 open_row = row
             elif value == end_value:
                 if open_row is not None:
-                    ranges.append(_event_range(dev, kind, open_row, row["ts"], row["id"]))
+                    _append_range(
+                        group_ranges, _event_range(dev, kind, open_row, row["ts"], row["id"])
+                    )
                     open_row = None
                 else:
                     points.append({**dict(row), "flagged": True})
@@ -237,7 +272,9 @@ def _pair_events(
                 points.append({**dict(row), "flagged": True})
 
         if open_row is not None:
-            ranges.append(_event_range(dev, kind, open_row, None, None))
+            _append_range(group_ranges, _event_range(dev, kind, open_row, None, None))
+
+        ranges.extend(group_ranges)
 
     for (dev, kind, subject), events in subject_groups.items():
         pair = _RANGE_KINDS.get(kind)

@@ -362,6 +362,69 @@ def test_focus_switching_apps_closes_the_previous_and_opens_the_next(client, con
     assert ranges[1]["ongoing"] is True
 
 
+def test_focus_brief_same_app_interruption_is_absorbed(client, conn):
+    """A glance at iTerm2 mid-edit and straight back to Code -- landing in
+    the same second, same as the real pings that motivated this -- and
+    bracketed by the same subject on both sides, should read as one
+    continuous Code session, not three blocks."""
+    insert_event(conn, BASE_TS, "focus", "start", subject="Code", device="macbook")
+    insert_event(conn, BASE_TS + 200, "focus", "start", subject="iTerm2", device="macbook")
+    insert_event(conn, BASE_TS + 200, "focus", "start", subject="Code", device="macbook")
+    insert_event(conn, BASE_TS + 320, "focus", "start", subject="Safari", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = sorted(
+        (i for i in day["items"] if i["type"] == "event" and i["kind"] == "focus"),
+        key=lambda e: e["start_ts"],
+    )
+
+    assert [r["subject"] for r in ranges] == ["Code", "Safari"]
+    assert ranges[0]["start_ts"] == BASE_TS
+    assert ranges[0]["end_ts"] == BASE_TS + 320
+    assert ranges[1]["ongoing"] is True
+
+
+def test_focus_brief_interruption_by_a_different_app_is_not_absorbed(client, conn):
+    """The merge only fires when the subject on both sides matches. A short
+    switch that lands on a *different* third app is a real, if brief, switch
+    and keeps its own block."""
+    insert_event(conn, BASE_TS, "focus", "start", subject="Terminal", device="macbook")
+    insert_event(conn, BASE_TS + 200, "focus", "start", subject="Code", device="macbook")
+    insert_event(conn, BASE_TS + 201, "focus", "start", subject="Safari", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = sorted(
+        (i for i in day["items"] if i["type"] == "event" and i["kind"] == "focus"),
+        key=lambda e: e["start_ts"],
+    )
+
+    assert [r["subject"] for r in ranges] == ["Terminal", "Code", "Safari"]
+    assert ranges[1]["start_ts"] == BASE_TS + 200
+    assert ranges[1]["end_ts"] == BASE_TS + 201
+
+
+def test_focus_a_chain_of_brief_interruptions_collapses_to_one_range(client, conn):
+    """Two separate glances back to iTerm2 -- not just one -- should still
+    collapse to a single Code range. Only the interruptions themselves need
+    to be instantaneous; the Code stretches between them can be any length."""
+    insert_event(conn, BASE_TS, "focus", "start", subject="Code", device="macbook")
+    insert_event(conn, BASE_TS + 100, "focus", "start", subject="iTerm2", device="macbook")
+    insert_event(conn, BASE_TS + 100, "focus", "start", subject="Code", device="macbook")
+    insert_event(conn, BASE_TS + 250, "focus", "start", subject="iTerm2", device="macbook")
+    insert_event(conn, BASE_TS + 250, "focus", "start", subject="Code", device="macbook")
+    insert_event(conn, BASE_TS + 400, "focus", "start", subject="Safari", device="macbook")
+
+    day = client.get("/api/v1/days/2026-06-01").json()
+    ranges = sorted(
+        (i for i in day["items"] if i["type"] == "event" and i["kind"] == "focus"),
+        key=lambda e: e["start_ts"],
+    )
+
+    assert [r["subject"] for r in ranges] == ["Code", "Safari"]
+    assert ranges[0]["start_ts"] == BASE_TS
+    assert ranges[0]["end_ts"] == BASE_TS + 400
+
+
 def test_site_switch_into_and_out_of_incognito_is_three_adjacent_ranges(client, conn):
     """incognito is its own subject, not a gap: the daemon sends 'start' for
     it same as any domain, and each new site implicitly closes the
