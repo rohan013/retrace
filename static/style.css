@@ -54,6 +54,18 @@ html, body {
   color-scheme: dark;
 }
 
+#theme-select {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: inherit;
+  font: inherit;
+  color-scheme: dark;
+  cursor: pointer;
+}
+#theme-select:hover { border-color: var(--accent); }
+
 #daybar-spacer { flex: 1; }
 
 button {
@@ -176,13 +188,11 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   background: color-mix(in srgb, var(--accent) 11%, transparent);
   transition: background .12s ease;
 }
-.place-band.trip {
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 10%, transparent) 0 8px,
-    transparent 8px 16px
-  );
-}
+/* Dashed rather than a texture of its own — same convention
+   .block.event.point already uses to mark a variant without a new visual
+   language, and it doesn't read as a hazard stripe the way the old diagonal
+   fill did. */
+.place-band.trip { border-top-style: dashed; }
 .place-band:hover, .place-band.hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .place-band.active {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
@@ -338,12 +348,12 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .block.event.point { border-left-style: dashed; }
 .block.event.flagged { background: color-mix(in srgb, var(--danger) 30%, var(--panel)); border-left-color: var(--danger); }
 
+/* Solid, not diagonal-striped — the old repeating-gradient read as hazard
+   tape on ordinary dense data. A stronger mix than a normal block's 26% (the
+   count is what actually says "this is a cluster"; the fill just needs to
+   feel a shade denser, not warn about anything). */
 .block.cluster {
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 28%, var(--panel)) 0 6px,
-    color-mix(in srgb, var(--accent) 14%, var(--panel)) 6px 12px
-  );
+  background: color-mix(in srgb, var(--accent) 34%, var(--panel));
   border-left: 3px solid var(--accent);
 }
 .cluster-label { display: flex; flex-direction: column; gap: 1px; }

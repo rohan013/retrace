@@ -122,23 +122,60 @@ export function speedBucket(mps) {
 }
 
 /* -- lane palette ------------------------------------------------------------
- * The dataviz-validated dark categorical set (palette.md), in its documented
- * order. Assigned once, by hand, below — never re-derived or cycled per
- * render.
+ * The dataviz-validated dark categorical set (palette.md) is the default
+ * theme. THEMES holds a handful of alternates picked from the header's theme
+ * picker — only the categorical set and the hash-wheel lightness/chroma
+ * change between them; SUBJECT_COLORS (brand hues) stay fixed regardless of
+ * theme, since those track real brand colours rather than a design choice.
+ * Slot order within `categorical` is fixed across every theme: 1 blue/place,
+ * 2 orange/app, 3 aqua/site, 4 yellow/carplay, 5 magenta/session, 6 green/wifi,
+ * 7 violet/focus, 8 red/geofence.
  */
 
-const CATEGORICAL_DARK = [
-  "#3987e5", // 1 blue
-  "#d95926", // 2 orange
-  "#199e70", // 3 aqua
-  "#c98500", // 4 yellow
-  "#d55181", // 5 magenta
-  "#008300", // 6 green
-  "#9085e9", // 7 violet
-  "#e66767", // 8 red
-];
+const THEMES = {
+  default: {
+    label: "Default",
+    categorical: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
+    hashLightness: 60,
+    hashChroma: 0.14,
+  },
+  jewel: {
+    label: "Jewel Tone",
+    categorical: ["#D9A017", "#C81E4D", "#1E5FD9", "#C9A227", "#D6449E", "#10A85E", "#7C3AED", "#8C1C3E"],
+    hashLightness: 50,
+    hashChroma: 0.19,
+  },
+  sunset: {
+    label: "Sunset",
+    categorical: ["#FF5C5C", "#FFC233", "#8B4FD9", "#FFA366", "#C43FA0", "#FF7A33", "#FF4D8D", "#E23744"],
+    hashLightness: 66,
+    hashChroma: 0.21,
+  },
+  ocean: {
+    label: "Ocean",
+    categorical: ["#22C7E0", "#2D6CDF", "#0E9C8C", "#E0C68A", "#E0568C", "#3ED9B0", "#2A4B8D", "#D9534F"],
+    hashLightness: 56,
+    hashChroma: 0.14,
+  },
+  neon: {
+    label: "Neon",
+    categorical: ["#FFEA00", "#00F0FF", "#9D00FF", "#FFB300", "#FF3D00", "#B6FF00", "#FF00C8", "#FF0044"],
+    hashLightness: 68,
+    hashChroma: 0.28,
+  },
+  candy: {
+    label: "Candy Pop",
+    categorical: ["#6EC3FF", "#FFE066", "#B18CFF", "#FFB37B", "#E066FF", "#5EE6A8", "#FF6FB5", "#FF6B6B"],
+    hashLightness: 74,
+    hashChroma: 0.15,
+  },
+};
 
-export const PLACE_COLOR = CATEGORICAL_DARK[0]; // blue — stays/trips
+export const THEME_LIST = Object.entries(THEMES).map(([id, t]) => ({ id, label: t.label }));
+
+let CATEGORICAL_DARK = THEMES.default.categorical;
+
+export let PLACE_COLOR = CATEGORICAL_DARK[0]; // blue — stays/trips
 
 // `session` is deliberately absent: focus already says what was on screen, so
 // a separate awake/asleep lane was redundant. `site` is absent too — it renders
@@ -167,13 +204,13 @@ export const laneTitle = (kind) => laneMeta(kind).title || kind;
  * place's background wash and an unrelated event block land on the exact
  * same hue. Each gets its own 28-hue OKLCH wheel instead, one offset from
  * the other so the two pools can never produce an identical hue. Lightness
- * and chroma are fixed per wheel so hue is the only thing that varies —
- * unlike the lane palette, these are not hand-tuned for pairwise CVD
- * separation; that's traded away here for more variety.
+ * and chroma are fixed per wheel (per theme) so hue is the only thing that
+ * varies within it — unlike the lane palette, these are not hand-tuned for
+ * pairwise CVD separation; that's traded away here for more variety.
  */
 const HASH_HUE_COUNT = 28;
-const HASH_LIGHTNESS = 60; // %, OKLCH
-const HASH_CHROMA = 0.14; // OKLCH
+let HASH_LIGHTNESS = THEMES.default.hashLightness; // %, OKLCH
+let HASH_CHROMA = THEMES.default.hashChroma; // OKLCH
 
 function hueWheel(count, offsetDeg) {
   return Array.from(
@@ -182,8 +219,34 @@ function hueWheel(count, offsetDeg) {
   );
 }
 
-const PLACE_HUES = hueWheel(HASH_HUE_COUNT, 0);
-const EVENT_HUES = hueWheel(HASH_HUE_COUNT, 180 / HASH_HUE_COUNT);
+let PLACE_HUES = hueWheel(HASH_HUE_COUNT, 0);
+let EVENT_HUES = hueWheel(HASH_HUE_COUNT, 180 / HASH_HUE_COUNT);
+
+let currentThemeId = "default";
+export const currentTheme = () => currentThemeId;
+
+// Swaps the categorical set and re-lights the hash wheels in place, so every
+// existing reference (LANE_META, the exported `let` bindings importers hold a
+// live binding to) picks up the new colours on the next render — no need to
+// re-import anything or thread a theme value through every call site.
+export function setTheme(id) {
+  const theme = THEMES[id] ? id : "default";
+  const t = THEMES[theme];
+  currentThemeId = theme;
+  CATEGORICAL_DARK = t.categorical;
+  PLACE_COLOR = CATEGORICAL_DARK[0];
+  LANE_META.session.color = CATEGORICAL_DARK[4];
+  LANE_META.app.color = CATEGORICAL_DARK[1];
+  LANE_META.wifi.color = CATEGORICAL_DARK[5];
+  LANE_META.carplay.color = CATEGORICAL_DARK[3];
+  LANE_META.geofence.color = CATEGORICAL_DARK[7];
+  LANE_META.focus.color = CATEGORICAL_DARK[6];
+  LANE_META.site.color = CATEGORICAL_DARK[2];
+  HASH_LIGHTNESS = t.hashLightness;
+  HASH_CHROMA = t.hashChroma;
+  PLACE_HUES = hueWheel(HASH_HUE_COUNT, 0);
+  EVENT_HUES = hueWheel(HASH_HUE_COUNT, 180 / HASH_HUE_COUNT);
+}
 
 /* -- per-subject colour ------------------------------------------------------
  * Blocks are coloured by *what* they are (Chrome, YouTube, iTerm2), not by

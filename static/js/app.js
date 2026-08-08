@@ -8,7 +8,7 @@ import * as mapview from "./mapview.js";
 import * as track from "./track.js";
 import { createMinimap } from "./minimap.js";
 import { renderDeviceLegend, renderInspector, renderSummary } from "./inspector.js";
-import { shiftDate, todayISO } from "./format.js";
+import { shiftDate, todayISO, THEME_LIST, setTheme } from "./format.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -124,6 +124,26 @@ el("show-raw").addEventListener("change", (e) => {
   load();
 });
 
+const THEME_STORAGE_KEY = "retrace-theme";
+const themeSelect = el("theme-select");
+for (const { id, label } of THEME_LIST) {
+  const opt = document.createElement("option");
+  opt.value = id;
+  opt.textContent = label;
+  themeSelect.appendChild(opt);
+}
+themeSelect.addEventListener("change", () => {
+  setTheme(themeSelect.value);
+  localStorage.setItem(THEME_STORAGE_KEY, themeSelect.value);
+  // Repaints from the already-loaded day — a theme swap never needs a refetch.
+  if (state.day) {
+    track.renderDay(state.day);
+    minimap.draw(state.day);
+    renderSummary(el("summary"), state.day);
+    renderDeviceLegend(el("device-legend"), state.day);
+  }
+});
+
 document.querySelectorAll("#zoom-presets button").forEach((btn) => {
   btn.addEventListener("click", () => track.applyPreset(btn.dataset.zoom));
 });
@@ -150,6 +170,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") return void track.zoomStep(1);
   if (e.key === "-" || e.key === "_") return void track.zoomStep(-1);
 });
+
+const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || "default";
+setTheme(savedTheme);
+themeSelect.value = savedTheme;
 
 mapview.loadAreas();
 load().catch((err) => {
