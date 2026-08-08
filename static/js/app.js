@@ -42,12 +42,7 @@ async function renameStay(item) {
   await mapview.renameStay(item, load);
 }
 
-const minimap = createMinimap(el("minimap-canvas"), el("minimap-viewport"), {
-  nowEl: el("minimap-now"),
-  onSeek: (scrollTop) => {
-    el("track-scroll").scrollTop = scrollTop;
-  },
-});
+const minimap = createMinimap(el("minimap-places"), { nowEl: el("minimap-now") });
 
 track.initTrack(
   {
@@ -55,7 +50,6 @@ track.initTrack(
     trackInner: el("track-inner"),
     headerEl: el("lane-headers"),
     bodyEl: el("lane-body"),
-    placeRailEl: el("place-rail"),
     rulerEl: el("ruler"),
     placeLayerEl: el("place-layer"),
     nowLineEl: el("now-line"),

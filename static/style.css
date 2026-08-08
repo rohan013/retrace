@@ -93,24 +93,56 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 #body { flex: 1; display: flex; min-height: 0; position: relative; }
 
+/* 86px = 64px original rail + 22px reserved for the place/trip name, written
+   vertically, that used to be its own column next to the track's ruler. */
 #minimap-rail {
-  width: 64px;
-  flex: 0 0 64px;
-  position: relative;
+  width: 86px;
+  flex: 0 0 86px;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
-#minimap-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-#minimap-viewport {
+/* Matches #lane-headers' own natural height so "day start" lands on the same
+   pixel row in both the rail and the track — otherwise the sticky header row
+   pushes the track's actual content down while the rail starts at the top of
+   #body, throwing the two out of vertical alignment. */
+#minimap-header-spacer { flex: 0 0 33.5px; border-bottom: 1px solid var(--line); }
+#minimap-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+
+/* The rail's place/trip identity: solid colour bands mirroring exactly what
+   the track's own scroll/zoom currently shows (see minimap.js) — name, and
+   space permitting duration, written vertically. Purely visual: a real
+   text layout with ellipsis, not a canvas redraw, is what makes that legible
+   at arbitrary sizes without hand-rolled text measurement. */
+#minimap-places {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.minimap-band {
   position: absolute;
   left: 0;
   right: 0;
-  background: rgba(57, 135, 229, 0.16);
-  border-top: 1px solid var(--accent);
-  border-bottom: 1px solid var(--accent);
-  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 55%, var(--panel));
+  border-top: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
 }
-#minimap-viewport:active { cursor: grabbing; }
+.minimap-band.trip { border-top-style: dashed; background: color-mix(in srgb, var(--accent) 40%, var(--panel)); }
+.minimap-band .rail-name,
+.minimap-band .rail-detail {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.minimap-band .rail-name { font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: .01em; }
+.minimap-band .rail-detail { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* -- track: sticky lane headers over a scrolling, zoomable grid -- */
 
@@ -167,12 +199,11 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* -- place background: stays and trips wash behind every lane rather than
    occupying a column of their own, so an event block reads against where you
-   were at the time. Starts after the place-rail + ruler gutter (22px + 48px
-   — kept in sync by hand with the grid columns in track.js's render()). -- */
+   were at the time. Starts after the 48px ruler gutter. -- */
 
 #place-layer {
   position: absolute;
-  left: 70px;
+  left: 48px;
   right: 0;
   top: 0;
   pointer-events: none;
@@ -200,52 +231,6 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-/* -- place rail: the identity a place-band used to float over the lanes as a
-   horizontal pill now lives here instead, in the narrow column left of the
-   ruler — name (and, space permitting) duration written vertically. -- */
-
-.place-rail { position: relative; }
-
-.rail-band {
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: auto;
-  cursor: pointer;
-  border-top: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
-  transition: background .12s ease;
-}
-.rail-band.trip { border-top-style: dashed; }
-.rail-band:hover, .rail-band.hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-.rail-band.active {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-/* Sticks to the top of the viewport while its band is on screen, so a long
-   stay stays identified however far you scroll into it — same behaviour the
-   old horizontal pill had. */
-.rail-label {
-  position: sticky;
-  top: 4px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  margin: 4px auto 0;
-  pointer-events: none;
-}
-.rail-name,
-.rail-detail {
-  writing-mode: vertical-rl;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rail-name { font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: .01em; }
-.rail-detail { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-
 /* -- now line: the current time, ticking. Sits under the scrub cursor so a
    deliberate hover always wins, and above the lanes so it is never buried. -- */
 
@@ -258,12 +243,11 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   pointer-events: none;
   z-index: 3;
 }
-/* The dot is what stops a thin red rule reading as just another block edge.
-   left: 66px = 22px place-rail + 44px into the 48px ruler gutter. */
+/* The dot is what stops a thin red rule reading as just another block edge. */
 #now-line::before {
   content: "";
   position: absolute;
-  left: 66px;
+  left: 44px;
   top: -3.5px;
   width: 7px;
   height: 7px;
@@ -273,7 +257,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 .now-chip {
   position: absolute;
-  left: 24px; /* 22px place-rail + 2px into the ruler gutter */
+  left: 2px;
   top: -8px;
   background: var(--now);
   color: #12070a;
@@ -309,7 +293,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 .scrub-chip {
   position: absolute;
-  left: 26px; /* 22px place-rail + 4px into the ruler gutter */
+  left: 4px;
   top: -9px;
   background: var(--accent);
   color: #04070d;

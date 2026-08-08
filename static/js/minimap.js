@@ -1,170 +1,110 @@
-/* The always-visible 24h rail: a canvas mapping the whole day onto a fixed
- * height (independent of the track's own zoom), a place band, one thin
- * density strip per event lane, and a draggable viewport indicator that
- * drives the track's scroll position. Never scrolls itself.
+/* The rail left of the ruler: place/trip identity (colour + a vertical
+ * name/duration label) mirroring the track's own pan and zoom exactly, so
+ * whatever's legible in the track is the same size here. It has no
+ * independent scale or scroll position of its own — every geometry input
+ * comes from the track via setViewport()/setNow(), fired on every scroll,
+ * zoom and resize.
  */
 
-import { hexToRgb, laneMeta, LANE_ORDER, placeHue, speedColour } from "./format.js";
-import { densityBuckets } from "./layout.js";
+import { distance, duration, escapeHTML, placeHue, speedColour } from "./format.js";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-export function createMinimap(canvas, viewportEl, { onSeek, nowEl } = {}) {
-  const ctx = canvas.getContext("2d");
+// Below this a band is too short for even the name to be worth attempting;
+// below the second, the name shows but duration/distance doesn't fit too.
+const NAME_MIN_PX = 28;
+const DETAIL_MIN_PX = 90;
+
+export function createMinimap(placesEl, { nowEl } = {}) {
   let currentDay = null;
-  let lastContentHeight = 0;
-  let lastViewportHeight = 0;
-
-  function resize() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(rect.width * dpr));
-    canvas.height = Math.max(1, Math.round(rect.height * dpr));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (currentDay) draw(currentDay);
-    updateViewportRect();
-  }
-
-  function draw(day) {
-    currentDay = day;
-    const rect = canvas.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-    ctx.clearRect(0, 0, w, h);
-    if (!day || h <= 0 || w <= 0) return;
-
-    const span = day.end_ts - day.start_ts;
-    if (span <= 0) return;
-    const yFor = (ts) => ((clamp(ts, day.start_ts, day.end_ts) - day.start_ts) / span) * h;
-
-    const placeItems = day.items.filter((i) => i.type === "stay" || i.type === "trip");
-    // `session` has no lane in the track, so it gets no strip here either —
-    // the rail should be a map of what the track shows.
-    const eventKinds = [
-      ...new Set(
-        day.items.filter((i) => i.type === "event" && i.kind !== "session").map((i) => i.kind)
-      ),
-    ].sort((a, b) => LANE_ORDER.indexOf(a) - LANE_ORDER.indexOf(b));
-
-    const placeWidth = eventKinds.length ? w * 0.44 : w;
-
-    for (const item of placeItems) {
-      const y0 = yFor(item.visible_start_ts);
-      const y1 = Math.max(y0 + 1, yFor(item.visible_end_ts));
-      ctx.globalAlpha = item.type === "stay" ? 0.9 : 0.65;
-      ctx.fillStyle =
-        item.type === "stay" ? placeHue(item) : speedColour(item.max_speed ?? item.avg_speed ?? 0);
-      ctx.fillRect(0, y0, placeWidth, y1 - y0);
-    }
-    ctx.globalAlpha = 1;
-
-    if (eventKinds.length) {
-      const stripWidth = (w - placeWidth) / eventKinds.length;
-      const rows = Math.max(1, Math.round(h));
-      eventKinds.forEach((kind, i) => {
-        const items = day.items.filter((it) => it.type === "event" && it.kind === kind);
-        const buckets = densityBuckets(items, day, rows);
-        const [r, g, b] = hexToRgb(laneMeta(kind).color);
-        const x = placeWidth + i * stripWidth;
-        for (let row = 0; row < rows; row++) {
-          const a = buckets[row];
-          if (a <= 0) continue;
-          ctx.fillStyle = `rgba(${r},${g},${b},${0.18 + a * 0.72})`;
-          ctx.fillRect(x, row, Math.max(1, stripWidth - 1), 1);
-        }
-      });
-    }
-
-    // Hairlines every 6h — text would be illegible at this width; the
-    // track's own ruler already carries hour labels.
-    ctx.strokeStyle = "rgba(255,255,255,0.10)";
-    ctx.lineWidth = 1;
-    const totalHours = span / 3600;
-    for (let hr = 6; hr < totalHours; hr += 6) {
-      const y = Math.round((hr * 3600 * h) / span) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-  }
-
-  function updateViewportRect() {
-    const rect = canvas.getBoundingClientRect();
-    const h = rect.height;
-    if (lastContentHeight <= 0 || h <= 0) {
-      viewportEl.style.height = "0px";
-      return;
-    }
-    const top = clamp((lastScrollTop / lastContentHeight) * h, 0, h);
-    const height = Math.max(8, (lastViewportHeight / lastContentHeight) * h);
-    viewportEl.style.top = `${top}px`;
-    viewportEl.style.height = `${Math.min(height, h - top)}px`;
-  }
-
   let lastScrollTop = 0;
+  let lastViewportHeight = 0;
+  let lastContentHeight = 0;
+  let redrawRaf = null;
 
-  function railYToScrollTop(clientY) {
-    const rect = canvas.getBoundingClientRect();
-    const frac = clamp((clientY - rect.top) / rect.height, 0, 1);
-    const target = frac * lastContentHeight - lastViewportHeight / 2;
-    return clamp(target, 0, Math.max(0, lastContentHeight - lastViewportHeight));
+  // Same mapping as the track's own layoutYFor(ts, day, pxPerMinute), just
+  // re-derived from contentHeight (the one thing setViewport gives us)
+  // instead of pxPerMinute directly — the two are equivalent since
+  // contentHeight is exactly layoutYFor(day.end_ts, ...).
+  function contentYFor(ts) {
+    const span = currentDay.end_ts - currentDay.start_ts;
+    if (span <= 0) return 0;
+    return ((ts - currentDay.start_ts) / span) * lastContentHeight;
   }
 
-  let dragOffset = null;
-  function onDragMove(e) {
-    const railRect = canvas.getBoundingClientRect();
-    const railTop = e.clientY - dragOffset - railRect.top;
-    const frac = railTop / railRect.height;
-    const scrollTop = clamp(
-      frac * lastContentHeight,
-      0,
-      Math.max(0, lastContentHeight - lastViewportHeight)
-    );
-    onSeek?.(scrollTop);
+  function renderPlaces() {
+    placesEl.innerHTML = "";
+    if (!currentDay || lastViewportHeight <= 0) return;
+
+    const items = currentDay.items.filter((i) => i.type === "stay" || i.type === "trip");
+    for (const item of items) {
+      const top = contentYFor(item.visible_start_ts) - lastScrollTop;
+      const bottom = contentYFor(item.visible_end_ts) - lastScrollTop;
+      if (bottom < 0 || top > lastViewportHeight) continue; // scrolled out of view
+      const height = Math.max(1, bottom - top);
+
+      const band = document.createElement("div");
+      band.className = item.type === "trip" ? "minimap-band trip" : "minimap-band";
+      band.style.top = `${top}px`;
+      band.style.height = `${height}px`;
+      band.style.setProperty(
+        "--accent",
+        item.type === "stay" ? placeHue(item) : speedColour(item.max_speed ?? item.avg_speed ?? 0)
+      );
+      if (height >= NAME_MIN_PX) {
+        const name = item.type === "stay" ? item.name || "Unnamed place" : "Moving";
+        const detailHTML =
+          height >= DETAIL_MIN_PX
+            ? `<span class="rail-detail">${
+                item.type === "stay" ? duration(item.visible_duration_s) : distance(item.distance_m)
+              }</span>`
+            : "";
+        band.innerHTML = `<span class="rail-name">${escapeHTML(name)}</span>${detailHTML}`;
+      }
+      placesEl.appendChild(band);
+    }
   }
-  function onDragEnd() {
-    dragOffset = null;
-    window.removeEventListener("mousemove", onDragMove);
-    window.removeEventListener("mouseup", onDragEnd);
+
+  // Scroll fires far more often than a redraw needs to happen — batched to
+  // one rebuild per frame, mirroring how the track throttles its own ruler.
+  function scheduleRedraw() {
+    if (redrawRaf) return;
+    redrawRaf = requestAnimationFrame(() => {
+      redrawRaf = null;
+      renderPlaces();
+    });
   }
-
-  viewportEl.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    dragOffset = e.clientY - viewportEl.getBoundingClientRect().top;
-    window.addEventListener("mousemove", onDragMove);
-    window.addEventListener("mouseup", onDragEnd);
-  });
-
-  canvas.addEventListener("mousedown", (e) => {
-    onSeek?.(railYToScrollTop(e.clientY));
-  });
-
-  const observer = new ResizeObserver(resize);
-  observer.observe(canvas);
-  window.addEventListener("resize", resize);
 
   return {
-    draw,
-    /** Called whenever the track's scroll position or total content height
-     * changes (zoom, scroll, resize) to keep the viewport rectangle honest. */
+    draw(day) {
+      currentDay = day;
+      scheduleRedraw();
+    },
+    /** Called whenever the track's scroll position, viewport height or total
+     * content height changes (zoom, scroll, resize) — the rail has no scale
+     * or position of its own, so every one of these needs a redraw. */
     setViewport(scrollTop, viewportHeight, contentHeight) {
       lastScrollTop = scrollTop;
       lastViewportHeight = viewportHeight;
       lastContentHeight = contentHeight;
-      updateViewportRect();
+      scheduleRedraw();
     },
-    /** frac is where "now" falls in the day (0..1), or null when the day being
-     * viewed does not contain it. A DOM tick rather than a canvas draw, so the
-     * clock ticking never costs a full repaint of the rail. */
-    setNow(frac) {
+    /** ts is the current time, or null when the day being viewed does not
+     * contain it — hidden either then or whenever "now" has scrolled out of
+     * the currently visible slice. */
+    setNow(ts) {
       if (!nowEl) return;
-      if (frac == null) {
+      if (ts == null || !currentDay) {
+        nowEl.hidden = true;
+        return;
+      }
+      const y = contentYFor(ts) - lastScrollTop;
+      if (y < 0 || y > lastViewportHeight) {
         nowEl.hidden = true;
         return;
       }
       nowEl.hidden = false;
-      nowEl.style.top = `${clamp(frac, 0, 1) * canvas.getBoundingClientRect().height}px`;
+      nowEl.style.top = `${clamp(y, 0, lastViewportHeight)}px`;
     },
   };
 }

@@ -29,7 +29,7 @@ app/          the service
 static/       the web UI — ES modules, no bundler
   js/layout.js  block geometry: clustering and packing. Pure, no DOM
   js/track.js   the zoomable day: lanes, blocks, scrubbing
-  js/minimap.js the 24h rail
+  js/minimap.js the place/trip rail left of the ruler, mirroring the track's pan/zoom
   js/mapview.js Leaflet: track, stays, raw fixes, areas
 scripts/      backup, synthetic data
 deploy/       systemd units
@@ -363,9 +363,9 @@ block also carries its own text, so colour never has to be read alone.
   spot, past and future — you name somewhere once.
 - **Click a lane header** to collapse it to a density strip and click again to
   restore it; the choice persists.
-- The **rail down the left edge** is the whole 24 hours at a fixed scale, whatever
-  the track is zoomed to: place bands and a heat strip per lane. Drag its viewport
-  box to scroll, or click anywhere to jump.
+- The **rail down the left edge** mirrors the track's own pan and zoom exactly —
+  place and trip identity (colour, and a vertical name/duration label where
+  there's room) for whatever slice of the day the track currently shows.
 - **Hovering the track** draws a time cursor and walks a marker along the route on
   the map — scrub down the day to see where you were.
 - An event that spans a place boundary — still on a call as you start driving,
