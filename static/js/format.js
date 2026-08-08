@@ -350,6 +350,19 @@ export function subjectColor(subject, fallbackSeed = "") {
   return EVENT_HUES[hashString(key + fallbackSeed) % EVENT_HUES.length];
 }
 
+// A couple of places carry enough real-world meaning (home, work) to be
+// worth pinning rather than leaving to the hash — everyone else still hashes
+// into PLACE_HUES same as before, collisions and all: the same trade-off
+// SUBJECT_COLORS already makes for apps, safe for the same reason — every
+// stay block always carries its own text label regardless of colour. Hue is
+// fixed (matched to blue and to #FF9900), but lightness/chroma still come
+// from the active theme, so these stay "the theme's version of that colour"
+// rather than a fixed hex baked in over every theme.
+const PLACE_HUE_OVERRIDES = {
+  home: 255, // matched to the app's own accent blue, #3987e5
+  work: 65, // matched to #FF9900
+};
+
 /* -- stable per-place colour -------------------------------------------------
  * Hashed from identity (place/area id), falling back to rounded coordinates
  * for an unnamed-but-located stay, and a neutral grey when nothing to hash.
@@ -359,6 +372,10 @@ export function subjectColor(subject, fallbackSeed = "") {
  * regardless.
  */
 export function placeHue(stay) {
+  const name = String(stay.name ?? "").trim().toLowerCase();
+  if (PLACE_HUE_OVERRIDES[name] != null) {
+    return `oklch(${HASH_LIGHTNESS}% ${HASH_CHROMA} ${PLACE_HUE_OVERRIDES[name]})`;
+  }
   const key =
     stay.place_id != null
       ? `place:${stay.place_id}`
