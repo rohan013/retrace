@@ -63,8 +63,10 @@ deploy/install.sh
 Checks `.env` and the venv are actually set up, installs and starts
 `retrace.service` and `retrace-backup.timer`, and puts `.env` and `data/` back
 to owner-only permissions — they hold the ingest token and every fix ever
-recorded. Safe to re-run any time the unit files change. `deploy/uninstall.sh`
-stops and removes them again, leaving the repo, `.env` and `data/` untouched.
+recorded. If `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` are set in `.env`, it
+also installs and starts `retrace-whoop.timer` (see [WHOOP](#whoop)). Safe to
+re-run any time the unit files change. `deploy/uninstall.sh` stops and removes
+them again, leaving the repo, `.env` and `data/` untouched.
 
 It listens on `127.0.0.1:8420` only. Nothing reaches it except through the tunnel.
 
@@ -320,6 +322,79 @@ curl -X POST "https://tracker.<your-domain>/api/v1/locations?format=shortcuts" \
   -H "Content-Type: application/json" \
   -d '{"kind":"focus","subject":"Terminal","value":"start","device":"macbook"}'
 ```
+
+---
+
+## WHOOP
+
+[`scripts/whoop_sync.py`](scripts/whoop_sync.py) pulls nightly sleep from the
+WHOOP API and posts it the same way Shortcuts does, run by a systemd timer on
+this machine rather than by a phone or laptop:
+
+| Signal | `kind` | `value` | `subject` |
+|---|---|---|---|
+| Main sleep (naps skipped) | `sleep` | `start` / `end` | — |
+
+Only duration is synced — WHOOP's own `start`/`end` for each scored main
+sleep, which is "time in bed" rather than the stricter stage-summed "time
+asleep" the WHOOP app shows. Recovery, Strain and Workout aren't synced.
+
+**1. Register an app.** [WHOOP Developer
+Dashboard](https://developer-dashboard.whoop.com/apps/create) → Create App:
+
+| Field | Value |
+|---|---|
+| Redirect URI | `http://localhost:8421/callback` |
+| Scopes | `offline`, `read:sleep` |
+| Privacy Policy URL | Not reviewed for an unpublished personal-use app — a throwaway URL or a one-line public Gist both work |
+
+Save the Client ID and Client Secret into `.env` as `WHOOP_CLIENT_ID` and
+`WHOOP_CLIENT_SECRET`.
+
+**2. Authorize once, interactively.** WHOOP requires a one-time OAuth consent
+in a real browser — there's no way around it for member-scoped health data,
+even with a client ID and secret in hand. If this server is remote, forward
+the callback port first so `localhost:8421` in your browser reaches this
+machine's loopback instead of your own:
+
+```bash
+ssh -L 8421:localhost:8421 <host>
+```
+
+Then, on the server:
+
+```bash
+.venv/bin/python scripts/whoop_sync.py auth
+```
+
+Open the printed URL, approve access, and it saves a token pair to
+`data/whoop_token.json` (mode 0600). Refresh tokens rotate on every use, so
+this file changes on every sync from here on — that's expected, not a sign
+of anything wrong.
+
+**3. Sanity-check a sync by hand:**
+
+```bash
+.venv/bin/python scripts/whoop_sync.py
+```
+
+Prints a one-line summary (nights seen, events pushed) and hits
+`127.0.0.1:8420` directly — no Cloudflare Access headers needed, since this
+runs on the same machine as the server rather than a phone or laptop reaching
+in through the tunnel.
+
+**4. Install the timer**, once a manual sync looks right:
+
+```bash
+deploy/install.sh
+```
+
+`deploy/install.sh` installs and enables `retrace-whoop.timer` alongside the
+other units whenever `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` are set in
+`.env` (steps 1 and 2 above). It runs at 8am and 10am server-local time,
+re-fetching a rolling 3-day window each time; re-sent sleep records are
+silently deduplicated, so a missed run is caught up by the next one rather
+than needing its own retry logic.
 
 ---
 

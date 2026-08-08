@@ -51,11 +51,27 @@ sudo systemctl daemon-reload
 echo "== enabling and starting =="
 sudo systemctl enable --now retrace.service retrace-backup.timer
 
+if grep -qE '^WHOOP_CLIENT_ID=.+' "$ROOT/.env" && grep -qE '^WHOOP_CLIENT_SECRET=.+' "$ROOT/.env"; then
+    echo "== installing WHOOP sync timer (sudo) =="
+    sudo cp "$ROOT"/deploy/retrace-whoop.service "$ROOT"/deploy/retrace-whoop.timer "$UNIT_DIR/"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now retrace-whoop.timer
+    if [[ ! -f "$ROOT/data/whoop_token.json" ]]; then
+        echo "  note: no data/whoop_token.json yet — run '.venv/bin/python scripts/whoop_sync.py auth' once by hand, or the timer's runs will fail until then"
+    fi
+else
+    echo "== skipping WHOOP sync timer (WHOOP_CLIENT_ID / WHOOP_CLIENT_SECRET not set in .env) =="
+fi
+
 echo
 echo "== status =="
 systemctl --no-pager status retrace.service
 echo
 systemctl list-timers retrace-backup.timer --no-pager
+if systemctl is-enabled --quiet retrace-whoop.timer 2>/dev/null; then
+    echo
+    systemctl list-timers retrace-whoop.timer --no-pager
+fi
 
 echo
 echo "done. tail logs with: journalctl -fu retrace"

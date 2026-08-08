@@ -1,0 +1,19 @@
+[Unit]
+Description=Sync WHOOP sleep data into retrace
+Documentation=file:///home/rohan/tracker/README.md
+
+[Service]
+Type=oneshot
+User=rohan
+Group=rohan
+ExecStart=/home/rohan/tracker/.venv/bin/python /home/rohan/tracker/scripts/whoop_sync.py
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/rohan/tracker/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+UMask=0077

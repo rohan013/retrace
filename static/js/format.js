@@ -181,7 +181,7 @@ export let PLACE_COLOR = CATEGORICAL_DARK[0]; // blue — stays/trips
 // a separate awake/asleep lane was redundant. `site` is absent too — it renders
 // nested inside its enclosing focus block (see FOCUS_GROUPS in track.js),
 // because a site event only ever happens while a browser is frontmost.
-export const LANE_ORDER = ["focus", "app", "wifi", "carplay", "geofence"];
+export const LANE_ORDER = ["focus", "app", "wifi", "carplay", "geofence", "sleep"];
 
 export const LANE_META = {
   session: { icon: "💻", title: "Awake", label: () => "Session", color: CATEGORICAL_DARK[4] },
@@ -191,6 +191,10 @@ export const LANE_META = {
   geofence: { icon: "📍", title: "Area", label: (i) => i.subject || "Area", color: CATEGORICAL_DARK[7] },
   focus: { icon: "🖥", title: "Screen", label: (i) => i.subject || "App", color: CATEGORICAL_DARK[6] },
   site: { icon: "🌐", title: "Websites", label: (i) => i.subject || "Site", color: CATEGORICAL_DARK[2] },
+  // Reuses session's color: session never renders as its own lane (see the
+  // comment above), so its slot in the hand-tuned palette is otherwise dead,
+  // and the two are thematically adjacent (awake/asleep).
+  sleep: { icon: "😴", title: "Sleep", label: () => "Sleep", color: CATEGORICAL_DARK[4] },
 };
 export const LANE_FALLBACK = { icon: "•", title: "Other", label: (i) => i.subject || i.kind, color: "#8b98ad" };
 

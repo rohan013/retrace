@@ -36,6 +36,7 @@ _RANGE_KINDS: dict[str, tuple[str, str]] = {
     "session": ("unlock", "lock"),
     "focus": ("start", "end"),
     "site": ("start", "end"),
+    "sleep": ("start", "end"),
 }
 
 # Kinds where at most one subject is ever open per device, unlike e.g. "app"

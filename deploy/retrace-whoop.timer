@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic WHOOP sleep sync
+
+[Timer]
+# 8am and 10am local time, comfortably inside the sync script's 3-day
+# lookback window, so a missed run is caught up by the next one.
+OnCalendar=*-*-* 08,10:00:00
+Persistent=yes
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
