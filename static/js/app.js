@@ -55,6 +55,7 @@ track.initTrack(
     trackInner: el("track-inner"),
     headerEl: el("lane-headers"),
     bodyEl: el("lane-body"),
+    placeRailEl: el("place-rail"),
     rulerEl: el("ruler"),
     placeLayerEl: el("place-layer"),
     nowLineEl: el("now-line"),

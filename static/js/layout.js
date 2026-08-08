@@ -21,8 +21,12 @@
 
 export const MIN_BLOCK_PX = 4; // nothing is ever thinner than this
 export const MERGE_GAP_PX = 3; // blocks closer than this collapse together
-export const LABEL_MIN_PX = 16; // a one-line label fits
-export const FULL_LABEL_MIN_PX = 52; // the three-line label fits
+// One line is 11px font at 1.35 line-height (~15px) plus 8px of vertical
+// padding; three lines add two more line-heights. These match that budget
+// rather than sitting under it — a shorter cutoff clips text mid-glyph
+// instead of skipping the label.
+export const LABEL_MIN_PX = 24; // a one-line label fits
+export const FULL_LABEL_MIN_PX = 56; // the three-line label fits
 
 export const yFor = (ts, day, pxPerMinute) => ((ts - day.start_ts) / 60) * pxPerMinute;
 

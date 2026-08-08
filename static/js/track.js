@@ -54,7 +54,10 @@ const FOCUS_SPANS = {
 // slower tick would visibly lag; a single style write per second is nothing.
 const NOW_TICK_MS = 1000;
 
-let trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl;
+const RULER_WIDTH = "48px";
+const PLACE_RAIL_WIDTH = "22px";
+
+let trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl, placeRailEl;
 let nowLineEl, nowChipEl;
 let nowTimer = null;
 let minimap = null;
@@ -85,7 +88,7 @@ function saveCollapsed() {
 /* -- init --------------------------------------------------------------- */
 
 export function initTrack(refs, opts) {
-  ({ trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl,
+  ({ trackScroll, trackInner, headerEl, bodyEl, rulerEl, scrubLineEl, scrubChipEl, placeLayerEl, placeRailEl,
      nowLineEl, nowChipEl } = refs);
   minimap = opts.minimap;
   onSelect = opts.onSelect || (() => {});
@@ -295,19 +298,21 @@ function laneColumnWidth(lane) {
 function render() {
   contentHeight = layoutYFor(day.end_ts, day, pxPerMinute);
 
-  const columns = ["48px", ...lanes.map(laneColumnWidth)].join(" ");
+  const columns = [PLACE_RAIL_WIDTH, RULER_WIDTH, ...lanes.map(laneColumnWidth)].join(" ");
   headerEl.style.gridTemplateColumns = columns;
   bodyEl.style.gridTemplateColumns = columns;
 
   renderHeaders();
   renderRuler();
   renderPlaceBackground();
+  renderPlaceRail();
   renderLanes();
   updateNowLine();
 }
 
 function renderHeaders() {
   headerEl.innerHTML = "";
+  headerEl.appendChild(el("div", "corner"));
   headerEl.appendChild(el("div", "corner"));
   for (const lane of lanes) {
     const meta = laneMeta(lane);
@@ -328,9 +333,9 @@ function renderHeaders() {
 
 /* -- place background --------------------------------------------------------
  * Stays and trips wash across every lane rather than occupying a column, so a
- * focus block reads against where you were at the time. Each band keeps its own
- * click target and a label that sticks to the top of the viewport while the
- * band is on screen, so a long stay stays identified while you scroll it.
+ * focus block reads against where you were at the time. Each band keeps its
+ * own click target; the name/duration identifying it lives in the place rail
+ * (renderPlaceRail below) rather than floating a label over the lanes.
  */
 function renderPlaceBackground() {
   placeLayerEl.innerHTML = "";
@@ -350,10 +355,6 @@ function renderPlaceBackground() {
     if (selection?.kind === "single" && blockKey(selection) === key) band.classList.add("active");
     band.title = tooltipText(item);
 
-    const name = item.type === "stay" ? item.name || "Unnamed place" : "Moving";
-    const detail = item.type === "stay" ? duration(item.visible_duration_s) : distance(item.distance_m);
-    band.innerHTML = `<span class="place-label"><span class="place-name">${escapeHTML(name)}</span><span class="place-detail">${detail}</span></span>`;
-
     band.addEventListener("click", () => {
       setSelection({ kind: "single", item });
       if (item.type === "stay") mapview.focusStay(item);
@@ -365,6 +366,62 @@ function renderPlaceBackground() {
     band.addEventListener("mouseenter", () => setHover(key, true));
     band.addEventListener("mouseleave", () => setHover(key, false));
     placeLayerEl.appendChild(band);
+  }
+}
+
+/* -- place rail ----------------------------------------------------------------
+ * The narrow column left of the ruler carries the identity a place-band used to
+ * float over the lanes as a horizontal pill — name (and, if there's room,
+ * duration/distance) written vertically, sticky within its band the same way
+ * the old pill stuck to the viewport. Duration drops first as height gets
+ * tight; below that the band is just a color sliver with no text at all,
+ * rather than clipped or overlapping letters.
+ */
+const RAIL_NAME_MIN_PX = 28;
+const RAIL_DETAIL_MIN_PX = 90;
+
+function renderPlaceRail() {
+  placeRailEl.innerHTML = "";
+  placeRailEl.style.height = `${contentHeight}px`;
+
+  const items = day.items.filter((i) => i.type === "stay" || i.type === "trip");
+  for (const item of items) {
+    const top = layoutYFor(item.visible_start_ts, day, pxPerMinute);
+    const height = Math.max(2, layoutYFor(item.visible_end_ts, day, pxPerMinute) - top);
+    const band = el("div", "rail-band");
+    band.style.top = `${top}px`;
+    band.style.height = `${height}px`;
+    band.style.setProperty("--accent", item.type === "stay" ? placeHue(item) : "var(--muted)");
+
+    const key = `${item.type}-${item.id}`;
+    band.dataset.key = key;
+    if (selection?.kind === "single" && blockKey(selection) === key) band.classList.add("active");
+    band.title = tooltipText(item);
+
+    // A sticky label can never show more than the viewport offers, so the
+    // budget is whichever is smaller — the band's own span or the viewport.
+    const available = Math.min(height, viewportHeight());
+    if (available >= RAIL_NAME_MIN_PX) {
+      const name = item.type === "stay" ? item.name || "Unnamed place" : "Moving";
+      const detail = item.type === "stay" ? duration(item.visible_duration_s) : distance(item.distance_m);
+      const detailHTML = available >= RAIL_DETAIL_MIN_PX ? `<span class="rail-detail">${detail}</span>` : "";
+      const maxHeight = Math.max(0, available - 8);
+      band.innerHTML =
+        `<span class="rail-label" style="max-height:${maxHeight}px">` +
+        `<span class="rail-name">${escapeHTML(name)}</span>${detailHTML}</span>`;
+    }
+
+    band.addEventListener("click", () => {
+      setSelection({ kind: "single", item });
+      if (item.type === "stay") mapview.focusStay(item);
+    });
+    band.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      zoomToFit({ kind: "single", item });
+    });
+    band.addEventListener("mouseenter", () => setHover(key, true));
+    band.addEventListener("mouseleave", () => setHover(key, false));
+    placeRailEl.appendChild(band);
   }
 }
 
@@ -403,8 +460,8 @@ function renderRuler() {
 
 function renderLanes() {
   // Clear previous lane columns — everything in bodyEl except the persistent
-  // ruler, place background, now line and scrub line.
-  const keep = new Set([rulerEl, scrubLineEl, placeLayerEl, nowLineEl]);
+  // place rail, ruler, place background, now line and scrub line.
+  const keep = new Set([placeRailEl, rulerEl, scrubLineEl, placeLayerEl, nowLineEl]);
   [...bodyEl.children].forEach((child) => {
     if (!keep.has(child)) child.remove();
   });
@@ -485,8 +542,7 @@ function blockClassName(item) {
   if (item.type === "stay") return "block stay";
   if (item.type === "trip") return "block trip";
   const system = isSystemSubject(item.subject) ? " system" : "";
-  const nested = item.kind === "site" ? " nested" : "";
-  return `block event ${item.shape}${item.ongoing ? " ongoing" : ""}${item.flagged ? " flagged" : ""}${system}${nested}`;
+  return `block event ${item.shape}${item.ongoing ? " ongoing" : ""}${item.flagged ? " flagged" : ""}${system}`;
 }
 
 function clusterAccent(block) {
@@ -522,6 +578,10 @@ function renderBlock(block, lane, span) {
     node.title = tooltipText(item);
     node.innerHTML = labelHTML(item, block.height);
   }
+  // The nested-inside-focus ring only earns its keep once a block is tall
+  // enough to actually carry a label — below that, `box-shadow` (never
+  // clipped by `overflow: hidden`) would smear across abutting slivers.
+  if (block.group === "site" && block.height >= LABEL_MIN_PX) node.classList.add("nested");
   if (selection && blockKey(selection) === key) node.classList.add("active");
 
   node.addEventListener("mouseenter", () => setHover(key, true));
@@ -545,10 +605,11 @@ function setHover(key, on) {
 
 function setSelection(block) {
   selection = block;
-  bodyEl.querySelectorAll(".block.active").forEach((n) => n.classList.remove("active"));
+  // A stay's key is shared by its place-band *and* its rail-band, so both
+  // need clearing/setting together, not just the first match.
+  bodyEl.querySelectorAll(".active").forEach((n) => n.classList.remove("active"));
   if (block) {
-    const node = bodyEl.querySelector(`[data-key="${CSS.escape(blockKey(block))}"]`);
-    node?.classList.add("active");
+    bodyEl.querySelectorAll(`[data-key="${CSS.escape(blockKey(block))}"]`).forEach((n) => n.classList.add("active"));
   }
   onSelect(block);
 }

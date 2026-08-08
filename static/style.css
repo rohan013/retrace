@@ -167,11 +167,12 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* -- place background: stays and trips wash behind every lane rather than
    occupying a column of their own, so an event block reads against where you
-   were at the time. Starts after the 48px ruler gutter. -- */
+   were at the time. Starts after the place-rail + ruler gutter (22px + 48px
+   — kept in sync by hand with the grid columns in track.js's render()). -- */
 
 #place-layer {
   position: absolute;
-  left: 48px;
+  left: 70px;
   right: 0;
   top: 0;
   pointer-events: none;
@@ -199,24 +200,51 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* -- place rail: the identity a place-band used to float over the lanes as a
+   horizontal pill now lives here instead, in the narrow column left of the
+   ruler — name (and, space permitting) duration written vertically. -- */
+
+.place-rail { position: relative; }
+
+.rail-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  transition: background .12s ease;
+}
+.rail-band.trip { border-top-style: dashed; }
+.rail-band:hover, .rail-band.hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.rail-band.active {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 /* Sticks to the top of the viewport while its band is on screen, so a long
-   stay stays identified however far you scroll into it. */
-.place-label {
+   stay stays identified however far you scroll into it — same behaviour the
+   old horizontal pill had. */
+.rail-label {
   position: sticky;
   top: 4px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 7px;
-  margin: 3px 0 0 8px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 24%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin: 4px auto 0;
   pointer-events: none;
 }
-.place-name { font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: .01em; }
-.place-detail { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-name,
+.rail-detail {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail-name { font-size: 11px; font-weight: 700; color: var(--ink); letter-spacing: .01em; }
+.rail-detail { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* -- now line: the current time, ticking. Sits under the scrub cursor so a
    deliberate hover always wins, and above the lanes so it is never buried. -- */
@@ -230,11 +258,12 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   pointer-events: none;
   z-index: 3;
 }
-/* The dot is what stops a thin red rule reading as just another block edge. */
+/* The dot is what stops a thin red rule reading as just another block edge.
+   left: 66px = 22px place-rail + 44px into the 48px ruler gutter. */
 #now-line::before {
   content: "";
   position: absolute;
-  left: 44px;
+  left: 66px;
   top: -3.5px;
   width: 7px;
   height: 7px;
@@ -244,7 +273,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 .now-chip {
   position: absolute;
-  left: 2px;
+  left: 24px; /* 22px place-rail + 2px into the ruler gutter */
   top: -8px;
   background: var(--now);
   color: #12070a;
@@ -280,7 +309,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 .scrub-chip {
   position: absolute;
-  left: 4px;
+  left: 26px; /* 22px place-rail + 4px into the ruler gutter */
   top: -9px;
   background: var(--accent);
   color: #04070d;
@@ -316,8 +345,15 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .block:hover, .block.hover { filter: brightness(1.18); }
 .block.active { outline: 2px solid var(--accent); outline-offset: 1px; filter: brightness(1.2); }
 
+.block .when,
+.block .title,
+.block .detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .block .when { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
-.block .title { font-weight: 600; color: var(--accent); display: inline; }
+.block .title { font-weight: 600; color: var(--accent); display: block; }
 .block .detail { color: var(--muted); font-size: 11px; }
 
 .block .line {
