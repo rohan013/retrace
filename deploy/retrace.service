@@ -1,6 +1,7 @@
 [Unit]
 Description=retrace — personal location history
 Documentation=file:///home/rohan/tracker/README.md
+OnFailure=retrace-alert@%n.service
 After=network-online.target
 Wants=network-online.target
 

@@ -1,0 +1,24 @@
+[Unit]
+Description=Check that retrace is still receiving location fixes
+Documentation=file:///home/rohan/tracker/README.md
+
+[Service]
+Type=oneshot
+User=rohan
+Group=rohan
+ExecStart=/home/rohan/tracker/.venv/bin/python /home/rohan/tracker/scripts/freshness_check.py
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/rohan/tracker/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+UMask=0077
+# Unlike the backup and sync jobs, this one reaches the network: the delivery
+# command ALERT_COMMAND names posts the message to whatever service carries it.
+# ProtectHome=read-only above still permits reading that command and whatever
+# credentials file it keeps under $HOME.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodic retrace location freshness check
+
+[Timer]
+# Every five minutes. The threshold decides when tracking counts as stopped;
+# this decides how soon that is noticed, so the alert lands within about five
+# minutes of the threshold being crossed. Deliberately not Persistent=yes: a run
+# missed while the machine was off needs no catch-up, because the next run
+# reaches the same conclusion from the same data.
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

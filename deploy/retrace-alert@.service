@@ -1,0 +1,24 @@
+[Unit]
+Description=Report that %i failed
+Documentation=file:///home/rohan/tracker/README.md
+
+# Instantiated by OnFailure= on the other units, which passes the failing unit's
+# name as %i. Deliberately has no OnFailure= of its own: if delivery is what is
+# broken, a failure here must not schedule another attempt to report it.
+
+[Service]
+Type=oneshot
+User=rohan
+Group=rohan
+WorkingDirectory=/home/rohan/tracker
+ExecStart=/home/rohan/tracker/scripts/notify_unit_failed.sh %i
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+UMask=0077
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

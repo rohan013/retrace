@@ -34,7 +34,7 @@ static/       the web UI — ES modules, no bundler
   js/mapview.js Leaflet: track, stays, raw fixes, areas
   js/daynav.js  the day bar, shared by both pages
   js/breakdown.js the two-ring donut on /breakdown
-scripts/      backup, synthetic data
+scripts/      backup, synthetic data, freshness alerting
 deploy/       systemd units
 macos/        the MacBook activity daemon — runs on the Mac, not this server
 tests/
@@ -401,6 +401,71 @@ than needing its own retry logic.
 
 ---
 
+## Alerts
+
+OwnTracks stops reporting and says nothing about it. iOS does not relaunch it,
+so tracking ends until the app is opened by hand, and the only evidence is a
+hole in the record found days later. Over one three-week stretch that was 270
+hours dark, 55% of the period, the longest single silence 39 hours.
+
+[`scripts/freshness_check.py`](scripts/freshness_check.py) watches for it, run
+by `retrace-freshness.timer` every five minutes. The rule is plain: no fix from
+`STALE_ALERT_DEVICE` for `STALE_ALERT_AFTER_MINUTES`, so an alert lands within
+about fifteen minutes of the fixes stopping.
+
+**One message per outage, and one when it ends.** A marker in `state` records
+which outage has been reported, so a 39-hour silence sends one message rather
+than the four hundred a five-minute timer would otherwise produce. When fixes
+resume, a second message says how long the hole was. The marker is written only
+after delivery succeeds, so a failed send is retried on the next run rather than
+leaving the outage recorded as reported.
+
+```
+location tracking stopped — no fix from iphone for 12 min.
+Open OwnTracks to resume.
+```
+
+**No notification credentials live in this repo.** `ALERT_COMMAND` names an
+executable that takes the message on stdin and delivers it however it likes; the
+channel, and its secrets, belong to that command. It is run as a bare argument
+list, never through a shell, so `.env` is not a place arbitrary commands get
+composed.
+
+```bash
+ALERT_COMMAND=/home/rohan/.claude/skills/notify-rohan/notify.sh
+STALE_ALERT_DEVICE=iphone
+STALE_ALERT_AFTER_MINUTES=10
+```
+
+Name the device explicitly — `GET /api/v1/devices` lists them. It is never
+inferred, because `points` accumulates retired devices whose last fix is
+permanently weeks old, and anything scanning for quiet devices would alert on
+those forever. A device that has never reported at all is treated as a
+configuration mistake rather than an outage, for the same reason.
+
+Check it before trusting it:
+
+```bash
+.venv/bin/python scripts/freshness_check.py --dry-run   # print, don't send
+.venv/bin/python scripts/freshness_check.py --force     # send a test message
+```
+
+`deploy/install.sh` installs the timer whenever `ALERT_COMMAND` is set, and
+skips it otherwise.
+
+**The same path reports a failed unit.** `retrace.service`,
+`retrace-backup.service` and `retrace-whoop.service` each name
+`OnFailure=retrace-alert@%n.service`, which pipes the unit name and the last few
+journal lines through `ALERT_COMMAND` — so a backup that starts failing says so
+instead of failing quietly. That unit has no `OnFailure` of its own: if delivery
+is what is broken, another attempt to report it would be the wrong move.
+
+A tighter `STALE_ALERT_AFTER_MINUTES` catches more; on real data a 10-minute
+threshold reports about a dozen outages a week, roughly a third of them short
+blips that resolve on their own, and 20 minutes drops those.
+
+---
+
 ## Using it
 
 Open `https://tracker.<your-domain>/`. One day at a time, every device combined
@@ -564,6 +629,7 @@ The ones that matter:
 | `GAP_RESUME_MAX_SECONDS` | 43200 | …but only up to this much silence. An overnight gap at home is one stay; three days of it is not |
 | `MAX_DETOUR_SPEED_MPS` | 83 | Out-and-back speed above which a run of fixes is a stale-fix artefact |
 | `BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR` | 4 | Fix density below which `/breakdown` reads a trip as a gap in the record rather than a journey |
+| `STALE_ALERT_AFTER_MINUTES` | 10 | Silence from `STALE_ALERT_DEVICE` that raises an alert |
 
 **Accuracy is a weight, not a filter.** Fixes are never dropped for a large
 accuracy radius — that radius is a confidence estimate, not proof the position is

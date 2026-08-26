@@ -63,6 +63,23 @@ else
     echo "== skipping WHOOP sync timer (WHOOP_CLIENT_ID / WHOOP_CLIENT_SECRET not set in .env) =="
 fi
 
+if grep -qE '^ALERT_COMMAND=.+' "$ROOT/.env"; then
+    ALERT_CMD="$(sed -n 's/^ALERT_COMMAND=//p' "$ROOT/.env" | head -1 | tr -d '"'"'"'')"
+    echo "== installing freshness alert timer (sudo) =="
+    sudo cp "$ROOT"/deploy/retrace-freshness.service "$ROOT"/deploy/retrace-freshness.timer \
+            "$ROOT"/deploy/retrace-alert@.service "$UNIT_DIR/"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now retrace-freshness.timer
+    if [[ ! -x "$ALERT_CMD" ]]; then
+        echo "  warning: ALERT_COMMAND ($ALERT_CMD) is not executable — alerts will fail until it is"
+    fi
+    if ! grep -qE '^STALE_ALERT_DEVICE=.+' "$ROOT/.env"; then
+        echo "  note: STALE_ALERT_DEVICE is empty — set it to the device to watch (see GET /api/v1/devices), or every run will exit 1"
+    fi
+else
+    echo "== skipping freshness alert timer (ALERT_COMMAND not set in .env) =="
+fi
+
 echo
 echo "== status =="
 systemctl --no-pager status retrace.service
@@ -71,6 +88,10 @@ systemctl list-timers retrace-backup.timer --no-pager
 if systemctl is-enabled --quiet retrace-whoop.timer 2>/dev/null; then
     echo
     systemctl list-timers retrace-whoop.timer --no-pager
+fi
+if systemctl is-enabled --quiet retrace-freshness.timer 2>/dev/null; then
+    echo
+    systemctl list-timers retrace-freshness.timer --no-pager
 fi
 
 echo

@@ -103,6 +103,16 @@ REBUILD_LOOKBACK_SECONDS = _int("REBUILD_LOOKBACK_SECONDS", 6 * 3600)
 # measure tens to hundreds of fixes an hour; the holes measure under one.
 BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR = _float("BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR", 4.0)
 
+# Alerts
+# Which device's location freshness scripts/freshness_check.py watches, as named
+# in GET /api/v1/devices. Never inferred: `points` accumulates retired devices
+# whose last fix is permanently weeks old, and anything that scans for quiet
+# devices would alert on those forever.
+STALE_ALERT_DEVICE = _str("STALE_ALERT_DEVICE", "")
+# Silence longer than this is an alert. A healthy phone reports every few
+# minutes, so this only has to clear the normal cadence by a comfortable margin.
+STALE_ALERT_AFTER_MINUTES = _int("STALE_ALERT_AFTER_MINUTES", 10)
+
 # Places
 PLACE_REUSE_RADIUS_M = _float("PLACE_REUSE_RADIUS_M", 50)
 GEOCODING_ENABLED = _bool("GEOCODING_ENABLED", False)

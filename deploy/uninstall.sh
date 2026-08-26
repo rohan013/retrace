@@ -7,7 +7,7 @@
 set -euo pipefail
 
 UNIT_DIR=/etc/systemd/system
-UNITS=(retrace.service retrace-backup.service retrace-backup.timer retrace-whoop.service retrace-whoop.timer)
+UNITS=(retrace.service retrace-backup.service retrace-backup.timer retrace-whoop.service retrace-whoop.timer retrace-freshness.service retrace-freshness.timer 'retrace-alert@.service')
 
 echo "== stopping =="
 sudo systemctl stop "${UNITS[@]}" 2>/dev/null || true

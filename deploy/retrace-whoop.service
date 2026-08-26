@@ -1,6 +1,7 @@
 [Unit]
 Description=Sync WHOOP sleep data into retrace
 Documentation=file:///home/rohan/tracker/README.md
+OnFailure=retrace-alert@%n.service
 
 [Service]
 Type=oneshot

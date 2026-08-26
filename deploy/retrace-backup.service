@@ -1,6 +1,7 @@
 [Unit]
 Description=Back up the retrace database
 Documentation=file:///home/rohan/tracker/README.md
+OnFailure=retrace-alert@%n.service
 
 [Service]
 Type=oneshot
