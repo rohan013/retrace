@@ -95,6 +95,14 @@ MAX_OUTLIER_RUN = 5
 # straddling the previous window boundary is reconsidered whole.
 REBUILD_LOOKBACK_SECONDS = _int("REBUILD_LOOKBACK_SECONDS", 6 * 3600)
 
+# Breakdown
+# A trip is whatever sits between two stays, so a phone that goes dark for a day
+# and comes back somewhere else produces one enormous trip. Below this fix
+# density a trip is a hole in the record rather than a journey, and the day
+# breakdown reports it as unknown location instead of as movement. Real journeys
+# measure tens to hundreds of fixes an hour; the holes measure under one.
+BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR = _float("BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR", 4.0)
+
 # Places
 PLACE_REUSE_RADIUS_M = _float("PLACE_REUSE_RADIUS_M", 50)
 GEOCODING_ENABLED = _bool("GEOCODING_ENABLED", False)

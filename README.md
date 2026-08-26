@@ -25,12 +25,15 @@ app/          the service
   segment.py    turning fixes into stays and trips
   places.py     turning stays into places
   timeline.py   assembling a day
+  breakdown.py  resolving a day's overlapping streams into one partition
   providers/    one file per phone app; add a file, not a branch
 static/       the web UI — ES modules, no bundler
   js/layout.js  block geometry: clustering and packing. Pure, no DOM
   js/track.js   the zoomable day: lanes, blocks, scrubbing
   js/minimap.js the place/trip rail left of the ruler, mirroring the track's pan/zoom
   js/mapview.js Leaflet: track, stays, raw fixes, areas
+  js/daynav.js  the day bar, shared by both pages
+  js/breakdown.js the two-ring donut on /breakdown
 scripts/      backup, synthetic data
 deploy/       systemd units
 macos/        the MacBook activity daemon — runs on the Mac, not this server
@@ -451,6 +454,40 @@ block also carries its own text, so colour never has to be read alone.
   a stay is real or an artefact of bad reception, and it is exactly what a tracker
   that discards raw data cannot offer.
 
+### Where the day went
+
+`/breakdown` answers a different question from the timeline: not what happened
+and when, but how the 24 hours divide up. It draws one day as a two-ring donut —
+the inner ring is **where** you were, the outer ring subdivides each place by
+**what** you were doing there — with the list beside it as the legend and the
+exact numbers. Hovering either one highlights the other. The day bar works the
+same as on the timeline, and the day you are looking at follows you between the
+two pages.
+
+Both rings total the whole day, which takes some deciding, because the streams
+overlap: sleep runs through whichever stay was in progress, a website sits inside
+its browser's focus block, and two phone apps can be open at once. Summed
+naively a day comes to forty-odd hours. So every instant is given exactly one
+place and exactly one activity, and the parts add up to the day exactly.
+
+Activities are a fixed set of six. `Sleep`, `Reddit`, `YouTube` and `Chrome` are
+the named ones; anything else on a device is `Other`, and time with no signal at
+all is `Untracked`. Reddit and YouTube are one slice each regardless of source,
+so the phone's Reddit app and `reddit.com` on the MacBook count together. The
+phone reports which app is open but never which site, so browsing Reddit in the
+phone's browser is inside `Chrome`.
+
+Where two streams cover the same instant, the more specific one wins: sleep
+first, then the MacBook's current site, then its frontmost app, then the phone.
+The MacBook outranks the phone because a frontmost-app signal is a real
+observation of what is on screen, while a phone app range can sit open long
+after you have put the phone down. Within one stream, the range that started
+most recently wins.
+
+Time you were somewhere unrecorded is drawn, not hidden — `No location` and
+`Untracked` are ordinary wedges in muted grey. The chart doubles as a coverage
+report, and on a day the phone spent offline that is most of what it has to say.
+
 **Draw areas before you bother with geocoding.** Ten boxes — home, work, gym,
 parents — name about 80 % of your stay-time with no external calls and no
 ambiguity:
@@ -485,7 +522,7 @@ is detected from its shape.
 |---|---|
 | `POST /api/v1/locations` | ingest — **the only write-open path**, token required |
 | `GET /api/v1/points` | raw fixes, keyset-paginated by `since_id` |
-| `GET /api/v1/days/{date}` | a day assembled: stays and trips, events paired into ranges, and a summary |
+| `GET /api/v1/days/{date}` | a day assembled: stays and trips, events paired into ranges, a summary, and the breakdown behind `/breakdown` |
 | `GET /api/v1/stays` · `PATCH /api/v1/stays/{id}` | query, name, annotate |
 | `GET /api/v1/trips` | |
 | `GET /api/v1/events` | raw event pings, unpaired — see `/api/v1/days` for the paired view |
@@ -526,6 +563,7 @@ The ones that matter:
 | `GAP_RESUME_DISTANCE_M` | 100 | After a gap, this close means you never left |
 | `GAP_RESUME_MAX_SECONDS` | 43200 | …but only up to this much silence. An overnight gap at home is one stay; three days of it is not |
 | `MAX_DETOUR_SPEED_MPS` | 83 | Out-and-back speed above which a run of fixes is a stale-fix artefact |
+| `BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR` | 4 | Fix density below which `/breakdown` reads a trip as a gap in the record rather than a journey |
 
 **Accuracy is a weight, not a filter.** Fixes are never dropped for a large
 accuracy radius — that radius is a confidence estimate, not proof the position is

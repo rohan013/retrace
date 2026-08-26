@@ -595,6 +595,11 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers=NO_STORE_HTML)
 
 
+@app.get("/breakdown")
+def breakdown_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "breakdown.html", headers=NO_STORE_HTML)
+
+
 # The UI is plain files with no build step, so there are no content-hashed
 # filenames to bust a cache with. Without an explicit Cache-Control, browsers
 # fall back to heuristic caching and will happily serve a stale app.js for

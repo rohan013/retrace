@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>retrace &middot; breakdown</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="daybar">
+      <button id="prev" title="Previous day">&larr;</button>
+      <input type="date" id="date">
+      <button id="next" title="Next day">&rarr;</button>
+      <button id="today" title="Jump to today">Today</button>
+
+      <nav id="view-nav" aria-label="View">
+        <a id="nav-timeline" href="/">Timeline</a>
+        <a id="nav-breakdown" href="/breakdown" class="active" aria-current="page">Breakdown</a>
+      </nav>
+
+      <div id="daybar-spacer"></div>
+      <select id="theme-select" title="Colour theme"></select>
+    </header>
+
+    <div id="breakdown-body">
+      <section id="donut-card">
+        <div id="donut-wrap">
+          <svg id="donut" viewBox="0 0 300 300" aria-hidden="true"></svg>
+          <div id="donut-centre" class="donut-centre"></div>
+        </div>
+        <p id="donut-caption" class="donut-caption"></p>
+      </section>
+
+      <section id="breakdown-list" class="breakdown-list"></section>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/breakdown.js"></script>
+</body>
+</html>

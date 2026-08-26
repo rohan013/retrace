@@ -36,8 +36,15 @@ export function clockTime(ts, tz, withSeconds = false) {
 }
 
 export function duration(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
+  let h = Math.floor(seconds / 3600);
+  let m = Math.round((seconds % 3600) / 60);
+  // Rounding the leftover seconds can reach a full hour of its own -- 86399s
+  // would otherwise print as "23h 60m" -- so carry it rather than show a
+  // minute count no clock has.
+  if (m === 60) {
+    h += 1;
+    m = 0;
+  }
   if (h && m) return `${h}h ${m}m`;
   if (h) return `${h}h`;
   return `${m}m`;
@@ -249,6 +256,7 @@ export function setTheme(id) {
   LANE_META.geofence.color = CATEGORICAL_DARK[7];
   LANE_META.focus.color = CATEGORICAL_DARK[6];
   LANE_META.site.color = CATEGORICAL_DARK[2];
+  LANE_META.sleep.color = CATEGORICAL_DARK[4]; // shares session's slot, see above
   HASH_LIGHTNESS = t.hashLightness;
   HASH_CHROMA = t.hashChroma;
   PLACE_HUES = hueWheel(HASH_HUE_COUNT, 0);

@@ -6,7 +6,7 @@ import pytest
 
 from app import segment
 
-from .conftest import BASE_TS, HOME, Track, offset_m
+from .conftest import BASE_TS, HOME, Track, insert_event, offset_m
 
 OFFICE = offset_m(HOME, 3_000, 2_000)
 
@@ -47,6 +47,43 @@ def test_an_empty_day_returns_an_empty_feed(client, conn):
 
 def test_a_malformed_date_is_rejected(client, conn):
     assert client.get("/api/v1/days/not-a-date").status_code == 400
+
+
+def test_a_day_carries_a_breakdown_that_accounts_for_the_whole_day(client, conn):
+    seed(client, conn)
+    day = client.get("/api/v1/days/2026-06-01").json()
+    breakdown = day["breakdown"]
+
+    total = day["end_ts"] - day["start_ts"]
+    assert breakdown["total_s"] == total
+    assert sum(p["seconds"] for p in breakdown["places"]) == total
+    assert sum(a["seconds"] for a in breakdown["activities"]) == total
+    assert {p["label"] for p in breakdown["places"]} >= {"Moving", "Unnamed"}
+
+
+def test_a_breakdown_reports_sleep_against_the_place_it_happened(client, conn):
+    seed(client, conn)
+    day = client.get("/api/v1/days/2026-06-01").json()
+    stay_item = next(i for i in day["items"] if i["type"] == "stay")
+    insert_event(conn, stay_item["visible_start_ts"], "sleep", "start", device="whoop")
+    insert_event(conn, stay_item["visible_start_ts"] + 3600, "sleep", "end", device="whoop")
+
+    breakdown = client.get("/api/v1/days/2026-06-01").json()["breakdown"]
+    somewhere = next(p for p in breakdown["places"] if p["label"] != "No location")
+    assert {a["label"] for a in somewhere["activities"]} >= {"Sleep"}
+    assert next(a for a in breakdown["activities"] if a["label"] == "Sleep")["seconds"] == 3600
+
+
+def test_a_breakdown_splits_a_midnight_crossing_sleep_across_both_days(client, conn):
+    insert_event(conn, UTC_MIDNIGHT - 2 * 3600, "sleep", "start", device="whoop")
+    insert_event(conn, UTC_MIDNIGHT + 6 * 3600, "sleep", "end", device="whoop")
+
+    def slept(day):
+        activities = client.get(f"/api/v1/days/{day}?tz=UTC").json()["breakdown"]["activities"]
+        return next((a["seconds"] for a in activities if a["label"] == "Sleep"), 0)
+
+    assert slept(EVE) == 2 * 3600
+    assert slept(MORNING) == 6 * 3600
 
 
 def test_the_day_timezone_defaults_to_where_the_user_last_was(client, conn):
@@ -144,14 +181,6 @@ def test_a_midnight_crossing_trip_splits_its_distance(client, conn):
 
 
 # -- events -------------------------------------------------------------
-
-
-def insert_event(conn, ts, kind, value_text=None, subject=None, device="phone", source="test"):
-    conn.execute(
-        "INSERT INTO events (ts, kind, source, subject, device, value_text, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (ts, kind, source, subject, device, value_text, ts),
-    )
 
 
 def test_a_paired_start_and_end_become_one_range(client, conn):
@@ -764,6 +793,12 @@ def test_healthz_reports_liveness_and_freshness(client, conn):
 
 def test_the_ui_is_served(client):
     response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+
+
+def test_the_breakdown_page_is_served(client):
+    response = client.get("/breakdown")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 

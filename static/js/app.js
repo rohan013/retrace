@@ -8,12 +8,12 @@ import * as mapview from "./mapview.js";
 import * as track from "./track.js";
 import { createMinimap } from "./minimap.js";
 import { renderDeviceLegend, renderInspector, renderSummary } from "./inspector.js";
-import { shiftDate, todayISO, THEME_LIST, setTheme } from "./format.js";
+import { initDayNav, initialDate } from "./daynav.js";
 
 const el = (id) => document.getElementById(id);
 
 const state = {
-  date: todayISO(),
+  date: initialDate(),
   showRaw: false,
   day: null,
 };
@@ -95,49 +95,25 @@ async function load() {
 
 /* -- wiring ------------------------------------------------------------------ */
 
-el("date").value = state.date;
-el("date").addEventListener("change", (e) => {
-  state.date = e.target.value;
-  load();
-});
-el("prev").addEventListener("click", () => {
-  state.date = shiftDate(state.date, -1);
-  el("date").value = state.date;
-  load();
-});
-el("next").addEventListener("click", () => {
-  state.date = shiftDate(state.date, 1);
-  el("date").value = state.date;
-  load();
-});
-el("today").addEventListener("click", () => {
-  state.date = todayISO();
-  el("date").value = state.date;
-  load();
-});
-el("show-raw").addEventListener("change", (e) => {
-  state.showRaw = e.target.checked;
-  load();
-});
-
-const THEME_STORAGE_KEY = "retrace-theme";
-const themeSelect = el("theme-select");
-for (const { id, label } of THEME_LIST) {
-  const opt = document.createElement("option");
-  opt.value = id;
-  opt.textContent = label;
-  themeSelect.appendChild(opt);
-}
-themeSelect.addEventListener("change", () => {
-  setTheme(themeSelect.value);
-  localStorage.setItem(THEME_STORAGE_KEY, themeSelect.value);
+initDayNav({
+  date: state.date,
+  onDateChange: (date) => {
+    state.date = date;
+    load();
+  },
   // Repaints from the already-loaded day — a theme swap never needs a refetch.
-  if (state.day) {
+  onThemeChange: () => {
+    if (!state.day) return;
     track.renderDay(state.day);
     minimap.draw(state.day);
     renderSummary(el("summary"), state.day);
     renderDeviceLegend(el("device-legend"), state.day);
-  }
+  },
+});
+
+el("show-raw").addEventListener("change", (e) => {
+  state.showRaw = e.target.checked;
+  load();
 });
 
 document.querySelectorAll("#zoom-presets button").forEach((btn) => {
@@ -159,17 +135,13 @@ drawBtn.addEventListener("click", () => {
   });
 });
 
+// Day navigation and the theme picker live in daynav.js, shared with the
+// breakdown page; zoom is the timeline's own.
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
-  if (e.key === "ArrowLeft") return void el("prev").click();
-  if (e.key === "ArrowRight") return void el("next").click();
   if (e.key === "+" || e.key === "=") return void track.zoomStep(1);
   if (e.key === "-" || e.key === "_") return void track.zoomStep(-1);
 });
-
-const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || "default";
-setTheme(savedTheme);
-themeSelect.value = savedTheme;
 
 mapview.loadAreas();
 load().catch((err) => {

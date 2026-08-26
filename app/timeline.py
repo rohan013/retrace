@@ -22,6 +22,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .breakdown import day_breakdown
+
 DEFAULT_TZ = "UTC"
 
 # Kinds whose two value_text states form a start/end pair. geofence is
@@ -497,6 +499,10 @@ def assemble_day(
         "start_ts": day_start,
         "end_ts": day_end,
         "items": items,
+        # Where the 24 hours went, with the overlaps between streams resolved --
+        # assembled here rather than behind its own route because it is derived
+        # entirely from the items above and costs one sweep over them.
+        "breakdown": day_breakdown(items, day_start, day_end),
         "summary": {
             "distance_m": distance,
             "time_moving_s": moving,

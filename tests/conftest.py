@@ -183,6 +183,23 @@ class Track:
         ingest.store(conn, parsed)
 
 
+# -- events -----------------------------------------------------------------
+
+
+def insert_event(conn, ts, kind, value_text=None, subject=None, device="phone", source="test"):
+    """One raw event ping, the shape ingest stores.
+
+    Events are point observations that the day view pairs into ranges on read,
+    so a test seeds the individual pings and asserts on what pairing makes of
+    them.
+    """
+    conn.execute(
+        "INSERT INTO events (ts, kind, source, subject, device, value_text, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (ts, kind, source, subject, device, value_text, ts),
+    )
+
+
 # -- fixtures ---------------------------------------------------------------
 
 
