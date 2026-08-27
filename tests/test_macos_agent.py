@@ -32,12 +32,13 @@ _STUB_MODULE_NAMES = (
 )
 
 
-@pytest.fixture
-def agent_module(monkeypatch):
+def _load_agent_module(monkeypatch, **extra_env):
     monkeypatch.setenv("SERVER_URL", "http://example.invalid")
     monkeypatch.setenv("INGEST_TOKEN", "test-token")
     monkeypatch.setenv("CF_ACCESS_CLIENT_ID", "test-id")
     monkeypatch.setenv("CF_ACCESS_CLIENT_SECRET", "test-secret")
+    for key, value in extra_env.items():
+        monkeypatch.setenv(key, value)
 
     stubs = {name: types.ModuleType(name) for name in _STUB_MODULE_NAMES}
     stubs["AppKit"].NSWorkspace = object
@@ -54,6 +55,21 @@ def agent_module(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def agent_module(monkeypatch):
+    return _load_agent_module(monkeypatch)
+
+
+@pytest.fixture
+def scoped_agent_module(monkeypatch):
+    """A deployment restricted to Reddit/YouTube `site` tracking with `focus`
+    suppressed entirely -- e.g. a work machine (see TRACKED_SITES/
+    EMIT_FOCUS_EVENTS in agent.py)."""
+    return _load_agent_module(
+        monkeypatch, TRACKED_SITES="reddit.com,youtube.com", EMIT_FOCUS_EVENTS="false"
+    )
 
 
 def _tracked_bundle(agent_module) -> str:
@@ -188,5 +204,71 @@ def test_heartbeat_emits_nothing_while_session_is_closed(agent_module):
     tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
 
     agent_module._heartbeat_loop(tracker, _FireOnceEvent())
+
+    assert emitted == []
+
+
+# -- TRACKED_SITES / EMIT_FOCUS_EVENTS scoping (e.g. a work machine) ---------
+
+
+def test_an_untracked_site_is_never_emitted(scoped_agent_module):
+    tracker = scoped_agent_module.ActivityTracker()
+    tracker.current_app_bundle = _tracked_bundle(scoped_agent_module)
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    scoped_agent_module.get_active_tab = lambda bundle_id: ("https://news.ycombinator.com/", "normal")
+    _run_one_poll_tick(tracker)
+
+    assert emitted == []
+    assert tracker.current_site is None
+
+
+def test_a_tracked_site_is_emitted_and_subdomains_match(scoped_agent_module):
+    tracker = scoped_agent_module.ActivityTracker()
+    tracker.current_app_bundle = _tracked_bundle(scoped_agent_module)
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    scoped_agent_module.get_active_tab = lambda bundle_id: ("https://old.reddit.com/r/test", "normal")
+    _run_one_poll_tick(tracker)
+
+    assert emitted == [("site", "start", "old.reddit.com")]
+
+
+def test_leaving_a_tracked_site_for_an_untracked_one_emits_an_explicit_end(scoped_agent_module):
+    tracker = scoped_agent_module.ActivityTracker()
+    tracker.current_app_bundle = _tracked_bundle(scoped_agent_module)
+    tracker.current_site = "reddit.com"
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    scoped_agent_module.get_active_tab = lambda bundle_id: ("https://news.ycombinator.com/", "normal")
+    _run_one_poll_tick(tracker)
+
+    assert emitted == [("site", "end", "reddit.com")]
+    assert tracker.current_site is None
+
+
+def test_incognito_is_treated_as_untracked_when_scoped(scoped_agent_module):
+    tracker = scoped_agent_module.ActivityTracker()
+    tracker.current_app_bundle = _tracked_bundle(scoped_agent_module)
+    tracker.current_site = "youtube.com"
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    scoped_agent_module.get_active_tab = lambda bundle_id: ("https://private.example/", "incognito")
+    _run_one_poll_tick(tracker)
+
+    assert emitted == [("site", "end", "youtube.com")]
+
+
+def test_focus_events_are_suppressed_when_disabled(scoped_agent_module):
+    tracker = scoped_agent_module.ActivityTracker()
+    emitted = []
+    tracker.emit = lambda kind, value, subject=None: emitted.append((kind, value, subject))
+
+    tracker.on_activate("Terminal", "com.apple.Terminal")
+    tracker.on_activate("Safari", "com.apple.Safari")
 
     assert emitted == []

@@ -98,7 +98,17 @@ small — read `KEY=value` lines from `.env` next to `agent.py`, skip
 blanks/comments, `os.environ.setdefault`. `.env.example` in this directory
 lists every variable: `SERVER_URL`, `INGEST_TOKEN`,
 `CF_ACCESS_CLIENT_ID`/`_SECRET`, `DEVICE`, `POLL_INTERVAL_SECONDS`,
-`QUEUE_PATH`.
+`QUEUE_PATH`, `TRACKED_SITES`, `EMIT_FOCUS_EVENTS`.
+
+**Scoping a deployment to specific sites.** `TRACKED_SITES` (comma-separated
+domains, subdomains match too) restricts `site` reporting to just those
+domains — anything else collapses to no site at all, never sent even as a
+placeholder. `EMIT_FOCUS_EVENTS=false` stops `focus` from being sent while
+still using the same frontmost-app signal internally to start/stop the site
+poll loop. Together they let a second machine — e.g. a work computer — run
+the identical daemon but report only "was a tracked site open", never which
+app was in use or which other sites were visited. `session` (unlock/lock/
+heartbeat) is unaffected by either setting.
 
 ## Notification wiring (Cocoa, via pyobjc)
 

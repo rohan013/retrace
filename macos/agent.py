@@ -54,6 +54,20 @@ DEVICE = os.environ.get("DEVICE", "macbook")
 POLL_INTERVAL_SECONDS = float(os.environ.get("POLL_INTERVAL_SECONDS", "4"))
 QUEUE_PATH = os.path.join(BASE_DIR, os.environ.get("QUEUE_PATH", "queue.jsonl"))
 
+# Unset (the default) tracks every domain, as before. Set to restrict `site`
+# reporting to specific domains and their subdomains -- e.g. a work machine
+# that should only ever report "was this Reddit or YouTube", never anything
+# else it was pointed at.
+TRACKED_SITES: set[str] | None = {
+    s.strip().lower() for s in os.environ.get("TRACKED_SITES", "").split(",") if s.strip()
+} or None
+
+# False stops `focus` (which app is frontmost) from ever being sent, while
+# still using the same frontmost-app notification internally to know when a
+# tracked browser is in front and start/stop the site poll loop -- so a work
+# machine can drive site-only tracking without reporting what else is used.
+EMIT_FOCUS_EVENTS = os.environ.get("EMIT_FOCUS_EVENTS", "true").strip().lower() not in ("false", "0", "no")
+
 QUEUE_FLUSH_INTERVAL_SECONDS = 45
 HEARTBEAT_INTERVAL_SECONDS = float(os.environ.get("HEARTBEAT_INTERVAL_SECONDS", "60"))
 POLL_JOIN_TIMEOUT_SECONDS = 3  # longer than OSASCRIPT_TIMEOUT_SECONDS below
@@ -106,6 +120,16 @@ def domain_of(url: str | None) -> str | None:
     if host.startswith("www."):
         host = host[4:]
     return host or None
+
+
+def site_is_tracked(site: str) -> bool:
+    """TRACKED_SITES unset tracks everything. Set, a subdomain still counts --
+    "old.reddit.com" matches "reddit.com" -- mirroring the widening the server
+    already does when bucketing a `site` subject (app/breakdown.py's
+    _domain_keys)."""
+    if TRACKED_SITES is None:
+        return True
+    return any(site == d or site.endswith(f".{d}") for d in TRACKED_SITES)
 
 
 def get_active_tab(bundle_id: str) -> tuple[str | None, str | None]:
@@ -170,7 +194,8 @@ class ActivityTracker:
                     self.current_site = None
 
         self.current_app_name, self.current_app_bundle = new_name, new_bundle
-        self.emit("focus", value="start", subject=new_name)
+        if EMIT_FOCUS_EVENTS:
+            self.emit("focus", value="start", subject=new_name)
 
         if new_bundle in TRACKED_BROWSERS:
             self.start_poll_loop()
@@ -199,13 +224,26 @@ class ActivityTracker:
         while True:
             try:
                 url, mode = get_active_tab(bundle_id)
-                site = "incognito" if mode == "incognito" else (domain_of(url) or "no tab")
+                raw_site = "incognito" if mode == "incognito" else (domain_of(url) or "no tab")
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError):
-                site = "no tab"  # e.g. front window is a downloads popup, not a tab
+                raw_site = "no tab"  # e.g. front window is a downloads popup, not a tab
+
+            # Untracked collapses to no site at all: TRACKED_SITES is a scoped
+            # deployment's only privacy boundary, so a "no tab"/"incognito"
+            # sentinel or a domain outside the allowlist must never be sent,
+            # not even as a placeholder subject.
+            site = raw_site if site_is_tracked(raw_site) else None
 
             with self.state_lock:
                 if site != self.current_site:
-                    self.emit("site", value="start", subject=site)
+                    # A new tracked site's `start` implicitly closes whichever
+                    # tracked site preceded it (site is an exclusive kind
+                    # server-side), so only the drop-to-untracked case needs an
+                    # explicit `end` here -- nothing else will ever send one.
+                    if site is None:
+                        self.emit("site", value="end", subject=self.current_site)
+                    else:
+                        self.emit("site", value="start", subject=site)
                     self.current_site = site
 
             if poll_stop.wait(POLL_INTERVAL_SECONDS):
