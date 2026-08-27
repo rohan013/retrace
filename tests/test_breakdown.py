@@ -161,7 +161,7 @@ def test_of_two_overlapping_phone_apps_the_later_one_wins():
     assert_totals(result)
     totals = activities(result)
     assert totals["Reddit"] == 3600
-    assert totals["Chrome"] == 11 * 3600
+    assert totals["Other"] == 11 * 3600
 
 
 def test_time_with_no_stream_at_all_reads_as_untracked():

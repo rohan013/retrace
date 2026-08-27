@@ -61,7 +61,6 @@ const ACTIVITY_COLOR = {
   Sleep: () => LANE_META.sleep.color,
   Reddit: () => subjectColor("reddit"),
   YouTube: () => subjectColor("youtube.com"),
-  Chrome: () => subjectColor("chrome"),
   Other: () => LANE_FALLBACK.color,
   Untracked: () => ABSENT,
 };

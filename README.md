@@ -535,12 +535,13 @@ its browser's focus block, and two phone apps can be open at once. Summed
 naively a day comes to forty-odd hours. So every instant is given exactly one
 place and exactly one activity, and the parts add up to the day exactly.
 
-Activities are a fixed set of six. `Sleep`, `Reddit`, `YouTube` and `Chrome` are
-the named ones; anything else on a device is `Other`, and time with no signal at
-all is `Untracked`. Reddit and YouTube are one slice each regardless of source,
-so the phone's Reddit app and `reddit.com` on the MacBook count together. The
-phone reports which app is open but never which site, so browsing Reddit in the
-phone's browser is inside `Chrome`.
+Activities are a fixed set of five. `Sleep`, `Reddit` and `YouTube` are the named
+ones; anything else on a device is `Other`, and time with no signal at all is
+`Untracked`. Reddit and YouTube are one slice each regardless of source, so the
+phone's Reddit app and `reddit.com` on the MacBook count together. The phone
+reports which app is open but never which site, so browsing Reddit or YouTube in
+the phone's browser is indistinguishable from any other site and falls into
+`Other`.
 
 Where two streams cover the same instant, the more specific one wins: sleep
 first, then the MacBook's current site, then its frontmost app, then the phone.

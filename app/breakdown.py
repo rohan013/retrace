@@ -43,7 +43,7 @@ _ACTIVITY_PRIORITY: dict[str, int] = {
 # the normalised form below; anything else in a tracked kind is _KIND_DEFAULT.
 _TRACKED_SUBJECTS: dict[str, dict[str, str]] = {
     "site": {"reddit.com": "Reddit", "youtube.com": "YouTube"},
-    "app": {"reddit": "Reddit", "youtube": "YouTube", "chrome": "Chrome"},
+    "app": {"reddit": "Reddit", "youtube": "YouTube"},
 }
 
 # What an untracked subject in a tracked kind becomes. `sleep` carries no subject

@@ -182,7 +182,10 @@ export const THEME_LIST = Object.entries(THEMES).map(([id, t]) => ({ id, label: 
 
 let CATEGORICAL_DARK = THEMES.default.categorical;
 
-export let PLACE_COLOR = CATEGORICAL_DARK[0]; // blue — stays/trips
+// Teal, pinned the same way Home/Work are (see PLACE_HUE_OVERRIDES below) —
+// distinct from both so a trip never reads as one of the places it connects.
+const MOVING_HUE = 200;
+export let PLACE_COLOR = `oklch(${THEMES.default.hashLightness}% ${THEMES.default.hashChroma} ${MOVING_HUE})`;
 
 // `session` is deliberately absent: focus already says what was on screen, so
 // a separate awake/asleep lane was redundant. `site` is absent too — it renders
@@ -201,10 +204,10 @@ export const LANE_META = {
   geofence: { icon: "📍", title: "Area", label: (i) => i.subject || "Area", color: CATEGORICAL_DARK[7] },
   focus: { icon: "🖥", title: "Screen", label: (i) => i.subject || "App", color: CATEGORICAL_DARK[6] },
   site: { icon: "🌐", title: "Websites", label: (i) => i.subject || "Site", color: CATEGORICAL_DARK[2] },
-  // Reuses session's color: session never renders as its own lane (see the
-  // comment above), so its slot in the hand-tuned palette is otherwise dead,
-  // and the two are thematically adjacent (awake/asleep).
-  sleep: { icon: "😴", title: "Sleep", label: () => "Sleep", color: CATEGORICAL_DARK[4] },
+  // Fixed violet, independent of theme — like SUBJECT_COLORS below, this is a
+  // deliberately chosen identity rather than a slot in the categorical set, so
+  // it stays recognisably "sleep" regardless of which theme is active.
+  sleep: { icon: "😴", title: "Sleep", label: () => "Sleep", color: "#8B5CF6" },
 };
 export const LANE_FALLBACK = { icon: "•", title: "Other", label: (i) => i.subject || i.kind, color: "#8b98ad" };
 
@@ -248,7 +251,6 @@ export function setTheme(id) {
   const t = THEMES[theme];
   currentThemeId = theme;
   CATEGORICAL_DARK = t.categorical;
-  PLACE_COLOR = CATEGORICAL_DARK[0];
   LANE_META.session.color = CATEGORICAL_DARK[4];
   LANE_META.app.color = CATEGORICAL_DARK[1];
   LANE_META.wifi.color = CATEGORICAL_DARK[5];
@@ -256,9 +258,10 @@ export function setTheme(id) {
   LANE_META.geofence.color = CATEGORICAL_DARK[7];
   LANE_META.focus.color = CATEGORICAL_DARK[6];
   LANE_META.site.color = CATEGORICAL_DARK[2];
-  LANE_META.sleep.color = CATEGORICAL_DARK[4]; // shares session's slot, see above
+  // sleep is intentionally not reset here — its color is fixed, see above.
   HASH_LIGHTNESS = t.hashLightness;
   HASH_CHROMA = t.hashChroma;
+  PLACE_COLOR = `oklch(${HASH_LIGHTNESS}% ${HASH_CHROMA} ${MOVING_HUE})`;
   PLACE_HUES = hueWheel(HASH_HUE_COUNT, 0);
   EVENT_HUES = hueWheel(HASH_HUE_COUNT, 180 / HASH_HUE_COUNT);
 }
@@ -365,17 +368,18 @@ export function subjectColor(subject, fallbackSeed = "") {
   return EVENT_HUES[hashString(key + fallbackSeed) % EVENT_HUES.length];
 }
 
-// A couple of places carry enough real-world meaning (home, work) to be
-// worth pinning rather than leaving to the hash — everyone else still hashes
-// into PLACE_HUES same as before, collisions and all: the same trade-off
+// A few places carry enough real-world meaning (home, work, gym) to be worth
+// pinning rather than leaving to the hash — everyone else still hashes into
+// PLACE_HUES same as before, collisions and all: the same trade-off
 // SUBJECT_COLORS already makes for apps, safe for the same reason — every
 // stay block always carries its own text label regardless of colour. Hue is
-// fixed (matched to blue and to #FF9900), but lightness/chroma still come
-// from the active theme, so these stay "the theme's version of that colour"
-// rather than a fixed hex baked in over every theme.
+// fixed, but lightness/chroma still come from the active theme, so these stay
+// "the theme's version of that colour" rather than a fixed hex baked in over
+// every theme.
 const PLACE_HUE_OVERRIDES = {
   home: 255, // matched to the app's own accent blue, #3987e5
   work: 65, // matched to #FF9900
+  gym: 145, // green
 };
 
 /* -- stable per-place colour -------------------------------------------------
