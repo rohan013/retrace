@@ -91,11 +91,17 @@ Zero Trust → **Networks → Tunnels** → your tunnel → **Public Hostname** 
 
 | | |
 |---|---|
-| Subdomain | `tracker` |
+| Subdomain | your choice, or blank to serve the domain itself |
 | Domain | your domain |
 | Service | `HTTP` → `localhost:8420` |
 
-Then put that hostname in `.env` as `PUBLIC_HOSTNAME=tracker.<your-domain>` and
+Whatever you route here is what the rest of this document calls `<your-host>`.
+A subdomain is worth one thought: the Access policy in step 2 covers a whole
+hostname, so putting retrace on its own name keeps that policy off everything
+else you serve, while on the bare domain it applies to the lot unless you scope
+it by path.
+
+Then put that hostname in `.env` as `PUBLIC_HOSTNAME=<your-host>` and
 restart. Requests arriving under any other name get a 400, which is what stops a
 web page that resolves its own hostname to `127.0.0.1` from reading the API out
 of a browser running on the server — a request like that never goes near
@@ -110,7 +116,7 @@ Self-hosted and private → Add public hostname:**
 
 | | |
 |---|---|
-| Domain | `tracker.<your-domain>` (no path) |
+| Domain | `<your-host>` (no path) |
 | Policy | **Allow**, Include → Emails → your email |
 
 ### 3. Let the phone in — with its own edge-enforced credential
@@ -121,11 +127,11 @@ rejects a request missing the right credential before it ever reaches your
 tunnel — just checking a machine token instead of an identity:
 
 1. **Access controls → Service credentials → Service Tokens → Create Service
-   Token.** Name it per device (`tracker-phone`, and later `tracker-macbook`,
-   `tracker-shortcuts`, …) — separate tokens mean a lost device revokes cleanly
+   Token.** Name it per device (`retrace-phone`, and later `retrace-macbook`,
+   `retrace-shortcuts`, …) — separate tokens mean a lost device revokes cleanly
    without touching the others. Save the Client ID and Client Secret; the secret
    is shown once.
-2. **Create new application** (same flow as above), domain `tracker.<your-domain>`
+2. **Create new application** (same flow as above), domain `<your-host>`
    **path** `/api/v1/locations` → policy **Service Auth**, Include → Service
    Token → the one(s) you created.
 3. The client sends the credential as two headers, `CF-Access-Client-Id` and
@@ -146,16 +152,38 @@ Check it from anywhere:
 
 ```bash
 # No credentials — Cloudflare's own 403, never reaches your server
-curl -i https://tracker.<your-domain>/api/v1/locations -X POST -d '{}'
+curl -i https://<your-host>/api/v1/locations -X POST -d '{}'
 
 # Service token headers but no INGEST_TOKEN — reaches the app, gets its 401
-curl -i https://tracker.<your-domain>/api/v1/locations -X POST -d '{}' \
+curl -i https://<your-host>/api/v1/locations -X POST -d '{}' \
   -H "CF-Access-Client-Id: <client_id>" \
   -H "CF-Access-Client-Secret: <client_secret>"
 ```
 
 `journalctl -fu retrace` should show nothing for the first request (Cloudflare
 never forwarded it) and a `401` for the second.
+
+The service token must not be able to *read*. This is the check that proves the
+write-only claim above, and the one worth re-running whenever an Access policy
+changes:
+
+```bash
+# Both must be refused by Cloudflare. A 200 here means the Service Auth
+# application is scoped to the hostname rather than to /api/v1/locations, and
+# the token on your phone can read your whole history back out.
+curl -i https://<your-host>/api/v1/points?limit=1 \
+  -H "CF-Access-Client-Id: <client_id>" \
+  -H "CF-Access-Client-Secret: <client_secret>"
+
+curl -i https://<your-host>/api/v1/days/2026-06-01 \
+  -H "CF-Access-Client-Id: <client_id>" \
+  -H "CF-Access-Client-Secret: <client_secret>"
+```
+
+An unauthenticated request to a read path is bounced to the Access login with a
+`302`; the ingest path answers `403` instead, since a machine credential has no
+login to be sent to. Either way nothing reaches the server, which is what
+`journalctl` is there to confirm.
 
 ---
 
@@ -166,7 +194,7 @@ App Store → OwnTracks → Settings:
 | Setting | Value |
 |---|---|
 | Mode | **HTTP** |
-| URL | `https://tracker.<your-domain>/api/v1/locations` |
+| URL | `https://<your-host>/api/v1/locations` |
 | Authentication | on |
 | Username | anything, e.g. `phone` — the server ignores this field |
 | Password | your `INGEST_TOKEN` |
@@ -218,7 +246,7 @@ and give it four actions:
 
 | Field | Value |
 |---|---|
-| URL | `https://tracker.<your-domain>/api/v1/locations?format=shortcuts` |
+| URL | `https://<your-host>/api/v1/locations?format=shortcuts` |
 | Method | `POST` |
 | Headers | `Authorization: Bearer <INGEST_TOKEN>`, `CF-Access-Client-Id: <id>`, `CF-Access-Client-Secret: <secret>` |
 | Request Body | JSON — `kind` `app`, `subject` the `Subject` variable, `value` the `Value` variable, `device` your phone's name |
@@ -313,13 +341,13 @@ polled every few seconds, but only while a tracked browser is actually the
 frontmost app.
 
 It needs its own Cloudflare Service Token, same as the phone — this is the
-`tracker-macbook` token the Service credentials step above already
+`retrace-macbook` token the Service credentials step above already
 anticipated by name.
 
 Sanity-check the path before installing the LaunchAgent for real:
 
 ```bash
-curl -X POST "https://tracker.<your-domain>/api/v1/locations?format=shortcuts" \
+curl -X POST "https://<your-host>/api/v1/locations?format=shortcuts" \
   -H "Authorization: Bearer $INGEST_TOKEN" \
   -H "CF-Access-Client-Id: <id>" -H "CF-Access-Client-Secret: <secret>" \
   -H "Content-Type: application/json" \
@@ -468,7 +496,7 @@ blips that resolve on their own, and 20 minutes drops those.
 
 ## Using it
 
-Open `https://tracker.<your-domain>/`. One day at a time, every device combined
+Open `https://<your-host>/`. One day at a time, every device combined
 into a single view.
 
 **The day is a vertical time axis.** Stays and trips are the *background* — tinted
@@ -565,7 +593,7 @@ being configured. To pin one deliberately — an app in its brand colour, two
 lookalikes pulled apart — set it and reload:
 
 ```bash
-curl -X PUT https://tracker.<your-domain>/api/v1/preferences \
+curl -X PUT localhost:8420/api/v1/preferences \
   -H 'Content-Type: application/json' \
   -d '{"subject_colors": {"figma": "#F76D8E", "github.com": "#A9B4C4"}}'
 ```
@@ -585,7 +613,7 @@ parents — name about 80 % of your stay-time with no external calls and no
 ambiguity:
 
 ```bash
-curl -X POST https://tracker.<your-domain>/api/v1/areas \
+curl -X POST localhost:8420/api/v1/areas \
   -H 'Content-Type: application/json' \
   -d '{"name":"Home","min_lat":51.5064,"min_lon":-0.1288,"max_lat":51.5084,"max_lon":-0.1268}'
 ```
@@ -642,7 +670,7 @@ touched by a rebuild and neither are your names and notes:
 
 ```bash
 sudo systemctl restart retrace
-curl -X POST https://tracker.<your-domain>/api/v1/reprocess
+curl -X POST localhost:8420/api/v1/reprocess
 ```
 
 The ones that matter:
@@ -853,8 +881,9 @@ of system shared libraries (`sudo playwright install-deps`, or the equivalent
   `\n` belongs will break it silently).
 - **A `400` in the log**, with `Invalid host header` in the body, means
   `PUBLIC_HOSTNAME` in `.env` doesn't match the hostname the tunnel routes. It
-  wants the bare name — `tracker.example.com` — and emptying it disables the
-  check while you work out which is which.
+  wants the bare name, with no scheme or path — `example.com` and
+  `retrace.example.com` are both fine — and emptying it disables the check while
+  you work out which is which.
 - **A `401` in the log** means the request reached the app but the password in
   OwnTracks doesn't match `INGEST_TOKEN`.
 - **A `200` in the log but no new row in the database** means the payload

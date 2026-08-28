@@ -64,7 +64,7 @@ MAX_INGEST_BYTES = _int("MAX_INGEST_BYTES", 2 * 1024 * 1024)
 HOST = _str("HOST", "127.0.0.1")
 PORT = _int("PORT", 8420)
 
-# The hostname the tunnel routes to this service, e.g. tracker.example.com.
+# The hostname the tunnel routes to this service.
 # Binding to loopback keeps the network out, but a browser running on this
 # machine can still be pointed here by a page that resolves its own hostname to
 # 127.0.0.1 -- at which point the page is same-origin with the API and

@@ -357,7 +357,7 @@ tail -f ~/Library/Logs/retrace-agent.log
 ```
 
 The Cloudflare Service Token (`CF_ACCESS_CLIENT_ID`/`_SECRET`) is a new one
-named `tracker-macbook`, created the same way the phone's was — see the
+named `retrace-macbook`, created the same way the phone's was — see the
 main repo README's "Cloudflare" and new "MacBook" sections.
 
 ## Open items to resolve while building this (don't guess past these)
