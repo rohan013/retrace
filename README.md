@@ -676,7 +676,7 @@ INGEST_TOKEN=$(grep ^INGEST_TOKEN .env | cut -d= -f2) \
 
 ## Backups
 
-`retrace-backup.timer` runs nightly at 04:17 UTC (21:17 local), keeping 7 daily and 4 weekly
+`retrace-backup.timer` runs nightly at 04:17 UTC, keeping 7 daily and 4 weekly
 gzipped snapshots in `data/backups/`. `Persistent=yes`, so a machine that was off
 at 04:17 backs up when it comes back.
 
