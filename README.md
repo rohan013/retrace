@@ -493,10 +493,14 @@ individual events the moment the zoom makes them readable. Nothing is hidden and
 nothing is faked: a block's size is always its true duration. Event timestamps are
 whole seconds, so `10s` is as fine as the record goes.
 
-Colour is per *subject*, not per lane: Chrome is Chrome-blue on the Mac and on the
-phone, YouTube red, iTerm2 green. macOS internals that take focus without you
-choosing them (`loginwindow`, `coreautha`) sit muted so real apps stand out. Every
-block also carries its own text, so colour never has to be read alone.
+Colour is per *subject*, not per lane: a subject wears the same colour everywhere
+it appears — on the Mac and on the phone, in the timeline and in the breakdown.
+Reddit and YouTube are pinned to their brand colours, since `/breakdown` counts
+them as activities in their own right; every other subject takes a stable hue
+derived from its own name until you [choose one](#colours). macOS internals that
+take focus without you choosing them (`loginwindow`, `coreautha`) sit muted so real
+apps stand out. Every block also carries its own text, so colour never has to be
+read alone.
 
 - **Arrow keys** or the date field move between days.
 - **Click** anything — a stay, a trip, one event, a cluster — to fill the
@@ -554,6 +558,28 @@ Time you were somewhere unrecorded is drawn, not hidden — `No location` and
 `Untracked` are ordinary wedges in muted grey. The chart doubles as a coverage
 report, and on a day the phone spent offline that is most of what it has to say.
 
+### Colours
+
+A subject's colour is derived from its own name, so it is stable without anything
+being configured. To pin one deliberately — an app in its brand colour, two
+lookalikes pulled apart — set it and reload:
+
+```bash
+curl -X PUT https://tracker.<your-domain>/api/v1/preferences \
+  -H 'Content-Type: application/json' \
+  -d '{"subject_colors": {"figma": "#F76D8E", "github.com": "#A9B4C4"}}'
+```
+
+Subjects match the way the UI matches them: case-insensitively, with `www.`
+stripped, and a bare domain covering its subdomains — so `whoop.com` catches
+`api.whoop.com` too. `PUT` replaces the whole map rather than merging, so send the
+full set each time; `{"subject_colors": {}}` clears it and puts everything back on
+its derived hue.
+
+These live in the database rather than in the source, which keeps them out of git
+and puts them in the nightly backup — which apps and sites you use is yours, not
+the project's. They follow you to every device that opens the UI.
+
 **Draw areas before you bother with geocoding.** Ten boxes — home, work, gym,
 parents — name about 80 % of your stay-time with no external calls and no
 ambiguity:
@@ -595,6 +621,7 @@ is detected from its shape.
 | `GET POST PATCH DELETE /api/v1/places` | |
 | `GET POST DELETE /api/v1/areas` | |
 | `GET /api/v1/devices` · `GET /api/v1/stats` | |
+| `GET PUT /api/v1/preferences` | display preferences — see [Colours](#colours) |
 | `POST /api/v1/reprocess` | rebuild the derived layer |
 | `GET /healthz` | |
 

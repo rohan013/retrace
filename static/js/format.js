@@ -132,8 +132,8 @@ export function speedBucket(mps) {
  * The dataviz-validated dark categorical set (palette.md) is the default
  * theme. THEMES holds a handful of alternates picked from the header's theme
  * picker — only the categorical set and the hash-wheel lightness/chroma
- * change between them; SUBJECT_COLORS (brand hues) stay fixed regardless of
- * theme, since those track real brand colours rather than a design choice.
+ * change between them; the pinned subject colours below stay fixed regardless
+ * of theme, since those carry a brand identity rather than a design choice.
  * Slot order within `categorical` is fixed across every theme: 1 blue/place,
  * 2 orange/app, 3 aqua/site, 4 yellow/carplay, 5 magenta/session, 6 green/wifi,
  * 7 violet/focus, 8 red/geofence.
@@ -267,64 +267,32 @@ export function setTheme(id) {
 }
 
 /* -- per-subject colour ------------------------------------------------------
- * Blocks are coloured by *what* they are (Chrome, YouTube, iTerm2), not by
- * which lane they sit in — a lane of one flat colour told you nothing you
- * couldn't already read from the column header.
+ * Blocks are coloured by *what* they are, not by which lane they sit in — a
+ * lane of one flat colour told you nothing you couldn't already read from the
+ * column header.
  *
- * These are brand hues lifted into the dark lightness band so every one clears
- * 3:1 on --bg (worst measured 5.29:1). They deliberately depart from the strict
- * categorical palette: recognising Chrome-blue or YouTube-red at a glance is
- * worth more here than pairwise ΔE, and it is safe to trade because colour is
- * never the only identity channel — every block carries its own text label and
- * the inspector names the subject in full.
+ * Two subjects are pinned here because /breakdown depends on them: its Reddit
+ * and YouTube wedges take their colour from this table, so those subjects have
+ * to draw the same colour on the timeline or the donut stops matching the day
+ * it describes. Each is listed in both the form the MacBook reports (a site)
+ * and the form the phone reports (an app), because app/breakdown.py folds all
+ * four into those two activities.
  *
- * That trade has a real cost worth knowing about. Brands cluster in the warm
- * end — YouTube red, Reddit orangered, Cloudflare orange, Claude clay — so
- * those sit closer together than the ΔE 15 a pure categorical set would hold,
- * and the labels are what carry them apart. Hues are still chosen to maximise
- * the *worst* pair within a sub-column, since only same-column blocks are ever
- * adjacent: Reddit is its true orangered rather than a red-orange (worst pair
- * 5.9 -> 7.7 against YouTube), and Gemini takes its blue-violet rather than
- * another Google blue, which clears every site collision outright.
+ * Every other subject takes a stable hue hashed from its own name, unless a
+ * colour has been set for it. Those overrides live in the database and arrive
+ * via setSubjectColors() at boot (GET /api/v1/preferences) rather than being
+ * listed here, because which apps and sites someone uses is theirs rather than
+ * the project's.
+ *
+ * The pinned pair are fixed hex so they hold their identity across every theme.
+ * The hashed wheel takes its lightness and chroma from the active theme.
  */
 
 const SUBJECT_COLORS = {
-  // macOS apps (focus)
-  "google chrome": "#5A9BFF",
-  "brave browser": "#F8943F",
-  "microsoft edge": "#4FC3E8",
-  arc: "#F76D8E",
-  safari: "#5A9BFF",
-  firefox: "#FF8A3D",
-  iterm2: "#2FD16C",
-  terminal: "#2FD16C",
-  claude: "#E08663",
-  code: "#4FA3F7",
-  "visual studio code": "#4FA3F7",
-  slack: "#C874D9",
-  calendar: "#FF5F55",
-  mail: "#5A9BFF",
-  messages: "#4ADE80",
-  notes: "#F5C451",
-  spotify: "#40D97A",
-  stremio: "#A78BFA",
-  figma: "#F76D8E",
-  finder: "#5A9BFF",
-  // iPhone apps
-  chrome: "#5A9BFF",
   reddit: "#E8620C",
-  // sites
-  "youtube.com": "#FF5252",
   "reddit.com": "#E8620C",
-  "google.com": "#8AB4F8",
-  "gemini.google.com": "#7C6BF5",
-  "cloudflare.com": "#F8943F",
-  "fidelity.com": "#5CC46A",
-  "whoop.com": "#35E8AC",
-  "claude.ai": "#E08663",
-  "github.com": "#A9B4C4",
-  "x.com": "#C6CEDA",
-  "news.ycombinator.com": "#FF8A3D",
+  youtube: "#FF5252",
+  "youtube.com": "#FF5252",
 };
 
 // Frameworks and daemons that take focus without you choosing them. Muted so a
@@ -358,11 +326,22 @@ export function isSystemSubject(subject) {
   return SYSTEM_SUBJECTS.has(normalizeSubject(subject));
 }
 
+// Colours chosen by the user, loaded once at boot. Empty until then, and
+// whenever that read fails — which costs a hashed colour, never a broken page.
+let SUBJECT_OVERRIDES = {};
+
+export function setSubjectColors(colours) {
+  SUBJECT_OVERRIDES = colours && typeof colours === "object" ? colours : {};
+}
+
 export function subjectColor(subject, fallbackSeed = "") {
   const key = normalizeSubject(subject);
   if (!key) return LANE_FALLBACK.color;
   if (SYSTEM_SUBJECTS.has(key)) return SYSTEM_COLOR;
   for (const candidate of key.includes(".") ? domainKeys(key) : [key]) {
+    // An override wins over the pinned pair, so a colour set for Reddit or
+    // YouTube reaches the donut and the timeline alike — both read from here.
+    if (SUBJECT_OVERRIDES[candidate]) return SUBJECT_OVERRIDES[candidate];
     if (SUBJECT_COLORS[candidate]) return SUBJECT_COLORS[candidate];
   }
   return EVENT_HUES[hashString(key + fallbackSeed) % EVENT_HUES.length];

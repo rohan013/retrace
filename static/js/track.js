@@ -508,8 +508,8 @@ function blockKey(block) {
   return `event-${item.kind}-${item.subject ?? ""}-${item.visible_start_ts}`;
 }
 
-// Colour comes from the subject, not the lane — Chrome is Chrome-blue whether
-// it shows up on the phone or the Mac.
+// Colour comes from the subject, not the lane, so one app wears the same colour
+// whether it shows up on the phone or the Mac.
 function blockAccent(item) {
   if (item.type === "stay") return placeHue(item);
   if (item.type === "trip") return "var(--muted)";

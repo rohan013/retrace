@@ -17,6 +17,7 @@ import {
   duration,
   escapeHTML,
   placeHue,
+  setSubjectColors,
   subjectColor,
 } from "./format.js";
 import { initDayNav, initialDate } from "./daynav.js";
@@ -322,6 +323,18 @@ function paintDay() {
     : "Nothing was recorded on this day.";
 }
 
+// Same as the timeline: colours the user has set, read once before first paint.
+// Falling back to hashed colours is not worth failing the page over.
+async function loadPreferences() {
+  try {
+    const response = await fetch("/api/v1/preferences");
+    if (!response.ok) throw new Error(String(response.status));
+    setSubjectColors((await response.json()).subject_colors);
+  } catch (err) {
+    console.warn("preferences unavailable, using hashed colours", err);
+  }
+}
+
 async function load() {
   const response = await fetch(`/api/v1/days/${state.date}`);
   if (!response.ok) throw new Error(`${response.status} loading ${state.date}`);
@@ -342,4 +355,4 @@ function showError(error) {
   el("breakdown-list").innerHTML = `<p class="insp-empty">Could not load: ${escapeHTML(error.message)}</p>`;
 }
 
-load().catch(showError);
+loadPreferences().then(load).catch(showError);

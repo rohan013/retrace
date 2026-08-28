@@ -9,6 +9,7 @@ import * as track from "./track.js";
 import { createMinimap } from "./minimap.js";
 import { renderDeviceLegend, renderInspector, renderSummary } from "./inspector.js";
 import { initDayNav, initialDate } from "./daynav.js";
+import { setSubjectColors } from "./format.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -22,6 +23,17 @@ async function getJSON(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${response.status} ${url}`);
   return response.json();
+}
+
+// Colours the user has set, fetched before the first paint so nothing needs
+// repainting once they arrive. A failure here is not fatal — every subject falls
+// back to its hashed colour and the day still draws.
+async function loadPreferences() {
+  try {
+    setSubjectColors(await getJSON("/api/v1/preferences").then((p) => p.subject_colors));
+  } catch (err) {
+    console.warn("preferences unavailable, using hashed colours", err);
+  }
 }
 
 async function loadPoints(day) {
@@ -144,7 +156,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 mapview.loadAreas();
-load().catch((err) => {
-  el("empty").hidden = false;
-  el("empty").textContent = `Could not load: ${err.message}`;
-});
+loadPreferences()
+  .then(load)
+  .catch((err) => {
+    el("empty").hidden = false;
+    el("empty").textContent = `Could not load: ${err.message}`;
+  });

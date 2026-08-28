@@ -21,6 +21,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -559,6 +560,73 @@ def get_stats(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict[str, Any]:
     return timeline.stats(conn, from_ts=from_ts, to_ts=to_ts, device=device)
+
+
+# -- preferences ------------------------------------------------------------
+
+PREFERENCES_KEY = "subject_colors"
+MAX_SUBJECT_COLORS = 500
+_HEX_COLOUR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _normalise_subject(subject: str) -> str:
+    """The same key `subjectColor()` builds in format.js, so a subject stored
+    with different case or a www. prefix still resolves against it."""
+    return str(subject).strip().lower().removeprefix("www.")
+
+
+@app.get("/api/v1/preferences")
+def get_preferences(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
+    """Display preferences, read by the UI at boot.
+
+    They live in `state` rather than in the source because they are one
+    person's choices rather than part of the project: which subject wears which
+    colour says which apps and sites someone uses. Kept here they travel with
+    the database, land in the nightly backup, and follow you to every device
+    that opens the UI.
+    """
+    stored = db.get_state(conn, PREFERENCES_KEY, "{}") or "{}"
+    try:
+        colours = json.loads(stored)
+    except json.JSONDecodeError:
+        # A hand-edited row that no longer parses must not take the day view
+        # down: every subject still has a hashed colour to fall back on.
+        logging.getLogger("retrace").warning(
+            "preferences: state[%s] is not valid JSON, serving empty", PREFERENCES_KEY
+        )
+        colours = {}
+    return {"subject_colors": colours if isinstance(colours, dict) else {}}
+
+
+@app.put("/api/v1/preferences")
+def put_preferences(
+    body: dict = Body(default_factory=dict),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Replace the stored preferences outright. Sending `{}` clears them, which
+    puts every subject back on its hashed colour."""
+    colours = body.get("subject_colors", {})
+    if not isinstance(colours, dict):
+        raise HTTPException(status_code=400, detail="'subject_colors' must be an object")
+    if len(colours) > MAX_SUBJECT_COLORS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'subject_colors' takes at most {MAX_SUBJECT_COLORS} entries",
+        )
+
+    cleaned: dict[str, str] = {}
+    for subject, colour in colours.items():
+        if not isinstance(colour, str) or not _HEX_COLOUR.match(colour):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{subject}' must map to a #rrggbb colour, got {colour!r}",
+            )
+        key = _normalise_subject(subject)
+        if key:
+            cleaned[key] = colour
+
+    db.set_state(conn, PREFERENCES_KEY, json.dumps(cleaned))
+    return {"subject_colors": cleaned}
 
 
 @app.post("/api/v1/reprocess")

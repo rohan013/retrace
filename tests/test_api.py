@@ -823,3 +823,52 @@ def test_the_sweep_is_a_no_op_when_nothing_changed(client, conn, db_path):
     client.post("/api/v1/locations", json=Track().stay(hours=2).payload())
     sweep_once()
     assert sweep_once() is None
+
+
+# -- preferences ------------------------------------------------------------
+
+
+def test_preferences_start_empty(client):
+    assert client.get("/api/v1/preferences").json() == {"subject_colors": {}}
+
+
+def test_preferences_round_trip(client):
+    body = {"subject_colors": {"figma": "#F76D8E", "github.com": "#A9B4C4"}}
+    assert client.put("/api/v1/preferences", json=body).status_code == 200
+    assert client.get("/api/v1/preferences").json() == body
+
+
+def test_a_preference_subject_is_normalised_the_way_the_ui_normalises_it(client):
+    client.put("/api/v1/preferences", json={"subject_colors": {"  WWW.GitHub.com ": "#A9B4C4"}})
+    assert client.get("/api/v1/preferences").json() == {"subject_colors": {"github.com": "#A9B4C4"}}
+
+
+def test_putting_an_empty_map_clears_every_colour(client):
+    client.put("/api/v1/preferences", json={"subject_colors": {"figma": "#F76D8E"}})
+    client.put("/api/v1/preferences", json={"subject_colors": {}})
+    assert client.get("/api/v1/preferences").json() == {"subject_colors": {}}
+
+
+@pytest.mark.parametrize("colour", ["red", "#ABC", "#GGGGGG", "", 42, None])
+def test_a_colour_that_is_not_a_hex_triple_is_refused(client, colour):
+    response = client.put("/api/v1/preferences", json={"subject_colors": {"figma": colour}})
+    assert response.status_code == 400
+
+
+def test_subject_colors_must_be_an_object(client):
+    assert client.put("/api/v1/preferences", json={"subject_colors": []}).status_code == 400
+
+
+def test_too_many_colours_are_refused(client):
+    from app.main import MAX_SUBJECT_COLORS
+
+    colours = {f"app-{i}": "#F76D8E" for i in range(MAX_SUBJECT_COLORS + 1)}
+    assert client.put("/api/v1/preferences", json={"subject_colors": colours}).status_code == 400
+
+
+def test_a_state_row_that_is_not_json_falls_back_to_no_colours(client, conn):
+    from app import db
+
+    db.set_state(conn, "subject_colors", "{not json")
+    conn.commit()
+    assert client.get("/api/v1/preferences").json() == {"subject_colors": {}}
