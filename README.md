@@ -1,15 +1,14 @@
 # retrace
 
 A self-hosted replacement for Google Maps Timeline, running on your own server,
-reachable through your existing Cloudflare Tunnel.
+reachable through a Cloudflare Tunnel.
 
-The point of it is accuracy. **Google throws your raw fixes away** — it
-downsamples, snaps to roads and known places, and hands back an already-interpreted
-result you cannot re-derive or argue with. Here every fix your phone ever sent is
-kept forever, and everything above it is a *derived layer* that can be thrown away
-and rebuilt from scratch with different settings. When a stay looks wrong you can
-open it, look at the individual fixes and their accuracy circles, change a
-threshold and rebuild.
+Google throws your raw fixes away. It downsamples, snaps to roads and known
+places, and hands back an already-interpreted result you cannot re-derive or
+argue with. Here every fix your phone ever sent is kept forever, and everything
+above it is a *derived layer* that can be thrown away and rebuilt from scratch
+with different settings. When a stay looks wrong you can open it, look at the
+individual fixes and their accuracy circles, change a threshold and rebuild.
 
 Python 3.12, FastAPI, SQLite, Leaflet. No Node, no Docker, no build step.
 
@@ -79,11 +78,11 @@ can restart the service itself after making code changes, without asking first.
 
 ---
 
-## Cloudflare — the blocking step
+## Cloudflare
 
-With Tailscale deliberately out of the picture, **the phone cannot reach the
-server at all until this is done.** The tunnel here is token-based and managed
-from the dashboard, so none of it can be scripted locally.
+The phone cannot reach the server until this is done. The tunnel is
+token-based and managed from the dashboard, so none of it can be scripted
+locally.
 
 ### 1. Route the hostname
 
@@ -96,18 +95,17 @@ Zero Trust → **Networks → Tunnels** → your tunnel → **Public Hostname** 
 | Service | `HTTP` → `localhost:8420` |
 
 Whatever you route here is what the rest of this document calls `<your-host>`.
-A subdomain is worth one thought: the Access policy in step 2 covers a whole
-hostname, so putting retrace on its own name keeps that policy off everything
-else you serve, while on the bare domain it applies to the lot unless you scope
-it by path.
+The Access policy in step 2 covers a whole hostname, so putting retrace on its
+own subdomain keeps that policy off everything else you serve; on the bare
+domain it applies to the lot unless you scope it by path.
 
-Then put that hostname in `.env` as `PUBLIC_HOSTNAME=<your-host>` and
-restart. Requests arriving under any other name get a 400, which is what stops a
-web page that resolves its own hostname to `127.0.0.1` from reading the API out
-of a browser running on the server — a request like that never goes near
-Cloudflare, so nothing above this layer would see it. `localhost` and
-`127.0.0.1` are always allowed, so local testing and `scripts/inspect_page.py`
-address it as usual. Leave it empty and the check is not installed at all.
+Then put that hostname in `.env` as `PUBLIC_HOSTNAME=<your-host>` and restart.
+Requests arriving under any other name get a 400. That is what stops a web page
+which resolves its own hostname to `127.0.0.1` from reading the API out of a
+browser running on the server: such a request never goes near Cloudflare, so
+nothing above this layer would see it. `localhost` and `127.0.0.1` are always
+allowed, so local testing and `scripts/inspect_page.py` address it as usual.
+Leave it empty and the check is not installed.
 
 ### 2. Protect the UI
 
@@ -119,16 +117,16 @@ Self-hosted and private → Add public hostname:**
 | Domain | `<your-host>` (no path) |
 | Policy | **Allow**, Include → Emails → your email |
 
-### 3. Let the phone in — with its own edge-enforced credential
+### 3. Let the phone in
 
 Your phone cannot complete an SSO login, so it authenticates with a **Service
-Auth** policy instead of a human one. It's still edge-enforced — Cloudflare
-rejects a request missing the right credential before it ever reaches your
-tunnel — just checking a machine token instead of an identity:
+Auth** policy. Enforcement still happens at the edge — Cloudflare rejects a
+request missing the right credential before it reaches your tunnel — checking a
+machine token instead of an identity:
 
 1. **Access controls → Service credentials → Service Tokens → Create Service
    Token.** Name it per device (`retrace-phone`, and later `retrace-macbook`,
-   `retrace-shortcuts`, …) — separate tokens mean a lost device revokes cleanly
+   `retrace-shortcuts`, …). Separate tokens mean a lost device revokes cleanly
    without touching the others. Save the Client ID and Client Secret; the secret
    is shown once.
 2. **Create new application** (same flow as above), domain `<your-host>`
@@ -137,16 +135,14 @@ tunnel — just checking a machine token instead of an identity:
 3. The client sends the credential as two headers, `CF-Access-Client-Id` and
    `CF-Access-Client-Secret` — see the OwnTracks `httpHeaders` field below.
 
-**`INGEST_TOKEN` stays on too**, as an independent second check: Service Auth
-stops a stranger who finds the URL; the app's own token stops anything that
-reaches the app directly, including a future Cloudflare-side misconfiguration.
-Cheap to keep, and it's already built.
+`INGEST_TOKEN` stays on as an independent second check. Service Auth stops a
+stranger who finds the URL; the app's own token stops anything that reaches the
+app directly, including a Cloudflare-side misconfiguration.
 
-> **Why the API is shaped the way it is.** Even with Service Auth, matching stays
-> path-based, not method-based — so `/api/v1/locations` accepts `POST` and
-> nothing else, and returns 405 to a GET, rather than trusting the Access layer
-> alone to keep reads out. Raw fixes are read back from `/api/v1/points`, gated
-> by the Allow policy like everything else.
+> Access matching is path-based, so `/api/v1/locations` accepts `POST` and
+> returns 405 to a GET rather than trusting the Access layer alone to keep reads
+> out. Raw fixes are read back from `/api/v1/points`, gated by the Allow policy
+> like everything else.
 
 Check it from anywhere:
 
@@ -163,9 +159,8 @@ curl -i https://<your-host>/api/v1/locations -X POST -d '{}' \
 `journalctl -fu retrace` should show nothing for the first request (Cloudflare
 never forwarded it) and a `401` for the second.
 
-The service token must not be able to *read*. This is the check that proves the
-write-only claim above, and the one worth re-running whenever an Access policy
-changes:
+The service token must not be able to read. This is the check that proves the
+write-only claim above; re-run it whenever an Access policy changes:
 
 ```bash
 # Both must be refused by Cloudflare. A 200 here means the Service Auth
@@ -200,10 +195,10 @@ App Store → OwnTracks → Settings:
 | Password | your `INGEST_TOKEN` |
 | httpHeaders | `CF-Access-Client-Id:<id>\nCF-Access-Client-Secret:<secret>` — one line, literal `\n` between the two (this field doesn't accept a real line break) |
 | DeviceID | anything, no spaces, e.g. `phone` |
-| Monitoring | `2` — the field is a raw integer: `-1` Quiet, `0` Manual, `1` Significant, `2` **Move**. `1` looks plausible but is the wrong mode; it uses iOS's coarse significant-change API instead of the displacement/interval settings below |
+| Monitoring | `2` — the field is a raw integer: `-1` Quiet, `0` Manual, `1` Significant, `2` **Move**. `1` looks plausible but uses iOS's coarse significant-change API instead of the displacement/interval settings below |
 | locatorDisplacement | `25` m |
 | locatorInterval | `180` s |
-| Passphrase | **leave empty.** If set, OwnTracks encrypts every payload including location fixes as `{"_type":"encrypted",...}`. The server doesn't decrypt — encryption on top of HTTPS + Service Auth + the ingest token is redundant — so it silently discards them as a recognised-but-ignored type ([`app/providers/owntracks.py`](app/providers/owntracks.py)). You get 200s and nothing stored, no error anywhere |
+| Passphrase | **leave empty.** If set, OwnTracks encrypts every payload including location fixes as `{"_type":"encrypted",...}`. The server doesn't decrypt — encryption on top of HTTPS + Service Auth + the ingest token is redundant — so it discards them as a recognised-but-ignored type ([`app/providers/owntracks.py`](app/providers/owntracks.py)). You get 200s and nothing stored, no error anywhere |
 
 Then, in **iOS Settings → OwnTracks**:
 
@@ -212,11 +207,11 @@ Then, in **iOS Settings → OwnTracks**:
 - **Never force-quit the app.** iOS will not restart it for you, and tracking
   simply stops.
 
-Low Power Mode suppresses background location. You will see gaps; the `batt` and
-`bs` fields recorded with every fix are what let you tell "I was somewhere with no
-signal" apart from "my phone was dead".
+Low Power Mode suppresses background location. The `batt` and `bs` fields
+recorded with every fix are what let you tell "I was somewhere with no signal"
+apart from "my phone was dead".
 
-**Distance filter first, time heartbeat second** — never pure time-based:
+Set a distance filter first and a time heartbeat second:
 
 | Mode | Displacement | Heartbeat | Points/day | Battery |
 |---|---|---|---|---|
@@ -224,8 +219,8 @@ signal" apart from "my phone was dead".
 | **Balanced ← default** | **25 m** | **3 min** | **3–6k** | **+10–15 %/day** |
 | Battery saver | 100 m | 10 min | 0.5–1.5k | +5 %/day |
 
-Start dense. Data can be thinned later; it can never be recovered. At balanced
-that is roughly **1.1 GB/year** with full raw payloads retained.
+Start dense; data can be thinned later. At balanced that is roughly **1.1
+GB/year** with full raw payloads retained.
 
 ---
 
@@ -233,8 +228,7 @@ that is roughly **1.1 GB/year** with full raw payloads retained.
 
 Personal Automations for device-activity signals, posted to the same ingest
 path as OwnTracks. The credentials live in **one** shortcut that every
-automation calls, rather than being copied into each one — adding an app is
-then two automations with no secrets in them.
+automation calls, so adding an app is two automations with no secrets in them.
 
 **The shared shortcut**, once. Shortcuts app → **+** → name it `Post Event`,
 and give it four actions:
@@ -251,7 +245,7 @@ and give it four actions:
 | Headers | `Authorization: Bearer <INGEST_TOKEN>`, `CF-Access-Client-Id: <id>`, `CF-Access-Client-Secret: <secret>` |
 | Request Body | JSON — `kind` `app`, `subject` the `Subject` variable, `value` the `Value` variable, `device` your phone's name |
 
-The `Authorization` header is not optional: Service Auth gets the request past
+The `Authorization` header is required: Service Auth gets the request past
 Cloudflare, but the app checks the ingest token independently and returns 401
 without it.
 
@@ -280,15 +274,14 @@ The body `Post Event` ends up sending for "Spotify → Is Opened":
 {"kind": "app", "subject": "Spotify", "value": "open", "device": "iphone"}
 ```
 
-`device` identifies which phone sent it, so the day view can tell two
-devices' activity apart when they overlap. `ts` is optional — omitted, the
-server uses its own receive time, which is accurate enough for this kind of
-log.
+`device` identifies which phone sent it, so the day view can tell two devices'
+activity apart when they overlap. `ts` is optional; omitted, the server uses its
+own receive time, which is accurate enough for this kind of log.
 
 A signal missing its other half shows in the day view open-ended (still
-connected/open) or as a flagged point with no duration (a close with no
-matching open) — worth checking occasionally to see how often an automation
-fails to fire its other half.
+connected/open), or as a flagged point with no duration for a close with no
+matching open. Check those occasionally to see how often an automation fails to
+fire.
 
 ---
 
@@ -309,40 +302,32 @@ phone:
 | Active tab's site, while a tracked browser is frontmost | `site` | `start` (`end` only when the browser loses focus) | bare domain e.g. `github.com`, or `incognito` / `no tab` |
 
 Only one app is ever frontmost and only one site is ever current, so both
-signals send just a `start` ping on each change — the server infers the
-previous one's end from it, rather than the daemon sending an explicit `end`
-for something it already knows is over. `site` is the one exception: leaving
-the browser entirely has no next `site` ping to infer a boundary from, so
-that transition still gets an explicit `end`.
+signals send a `start` ping on each change and the server infers the previous
+one's end from it. Leaving the browser entirely has no next `site` ping to infer
+a boundary from, so that transition gets an explicit `end`.
 
-`session` gets a `heartbeat` every minute while unlocked, from a separate
-timer thread. `unlock`/`lock` are each already a clean transition on their
-own, so this isn't for pairing — it's so a crash, dead battery, or lost
-network that leaves an `unlock` with no matching `lock` doesn't stay
-`ongoing` forever. Once heartbeats for a device stop arriving, the server
-closes that range at the last one it got instead of leaving it open-ended.
+`session` gets a `heartbeat` every minute while unlocked, from a separate timer
+thread. It bounds an `unlock` left dangling by a crash, dead battery or lost
+network: once heartbeats for a device stop arriving, the server closes that
+range at the last one it got.
 
-Site-tracking covers Chrome, Brave, Edge and Arc — the Chromium family
-exposes a `mode` property (`"normal"`/`"incognito"`) via AppleScript.
-Incognito windows aren't skipped, they're recorded as their own subject:
-browsing privately posts `site`/`start` with subject `incognito` rather than
-a domain, so no URL is ever logged, but the fact of private browsing, and
-its duration, is. `no tab` covers the same case for a front window with
-nothing scriptable to read, e.g. a downloads popup. Safari and Firefox
-aren't covered — Safari has no reliably scriptable way to detect a private
-window, and Firefox has no AppleScript dictionary at all.
+Site-tracking covers Chrome, Brave, Edge and Arc, the Chromium family exposing a
+`mode` property (`"normal"`/`"incognito"`) via AppleScript. An incognito window
+is recorded as its own subject: browsing privately posts `site`/`start` with
+subject `incognito` in place of a domain, so no URL is logged while the fact of
+private browsing and its duration still are. `no tab` covers a front window with
+nothing scriptable to read, e.g. a downloads popup. Safari has no reliably
+scriptable way to detect a private window and Firefox has no AppleScript
+dictionary, so site-tracking skips both.
 
-Unlike the iPhone, which needs one Shortcuts automation per app it tracks,
-the Mac daemon observes every focus change through a single macOS
-notification — no per-app setup. It's event-driven throughout (real
-`NSWorkspace` and screen-lock notifications, not a polling loop) except for
-the active browser tab, which has no "changed" notification and so is
-polled every few seconds, but only while a tracked browser is actually the
+The daemon observes every focus change through a single macOS notification, so
+there is no per-app setup. It runs on `NSWorkspace` and screen-lock
+notifications throughout, except for the active browser tab, which has no change
+notification and so is polled every few seconds while a tracked browser is the
 frontmost app.
 
-It needs its own Cloudflare Service Token, same as the phone — this is the
-`retrace-macbook` token the Service credentials step above already
-anticipated by name.
+It needs its own Cloudflare Service Token: the `retrace-macbook` one from the
+Service credentials step above.
 
 Sanity-check the path before installing the LaunchAgent for real:
 
@@ -366,9 +351,9 @@ this machine rather than by a phone or laptop:
 |---|---|---|---|
 | Main sleep (naps skipped) | `sleep` | `start` / `end` | — |
 
-Only duration is synced — WHOOP's own `start`/`end` for each scored main
-sleep, which is "time in bed" rather than the stricter stage-summed "time
-asleep" the WHOOP app shows. Recovery, Strain and Workout aren't synced.
+The synced range is WHOOP's own `start`/`end` for each scored main sleep, which
+is "time in bed" rather than the stricter stage-summed "time asleep" the WHOOP
+app shows.
 
 **1. Register an app.** [WHOOP Developer
 Dashboard](https://developer-dashboard.whoop.com/apps/create) → Create App:
@@ -382,11 +367,11 @@ Dashboard](https://developer-dashboard.whoop.com/apps/create) → Create App:
 Save the Client ID and Client Secret into `.env` as `WHOOP_CLIENT_ID` and
 `WHOOP_CLIENT_SECRET`.
 
-**2. Authorize once, interactively.** WHOOP requires a one-time OAuth consent
-in a real browser — there's no way around it for member-scoped health data,
-even with a client ID and secret in hand. If this server is remote, forward
-the callback port first so `localhost:8421` in your browser reaches this
-machine's loopback instead of your own:
+**2. Authorize once, interactively.** Member-scoped health data requires a
+one-time OAuth consent in a real browser, even with a client ID and secret in
+hand. If this server is remote, forward the callback port first so
+`localhost:8421` in your browser reaches this machine's loopback instead of your
+own:
 
 ```bash
 ssh -L 8421:localhost:8421 <host>
@@ -399,9 +384,8 @@ Then, on the server:
 ```
 
 Open the printed URL, approve access, and it saves a token pair to
-`data/whoop_token.json` (mode 0600). Refresh tokens rotate on every use, so
-this file changes on every sync from here on — that's expected, not a sign
-of anything wrong.
+`data/whoop_token.json` (mode 0600). Refresh tokens rotate on every use, so this
+file changes on every sync from here on.
 
 **3. Sanity-check a sync by hand:**
 
@@ -409,10 +393,9 @@ of anything wrong.
 .venv/bin/python scripts/whoop_sync.py
 ```
 
-Prints a one-line summary (nights seen, events pushed) and hits
-`127.0.0.1:8420` directly — no Cloudflare Access headers needed, since this
-runs on the same machine as the server rather than a phone or laptop reaching
-in through the tunnel.
+Prints a one-line summary (nights seen, events pushed) and hits `127.0.0.1:8420`
+directly. It needs no Cloudflare Access headers, running on the same machine as
+the server rather than reaching in through the tunnel.
 
 **4. Install the timer**, once a manual sync looks right:
 
@@ -423,9 +406,8 @@ deploy/install.sh
 `deploy/install.sh` installs and enables `retrace-whoop.timer` alongside the
 other units whenever `WHOOP_CLIENT_ID` and `WHOOP_CLIENT_SECRET` are set in
 `.env` (steps 1 and 2 above). It runs at 8am and 10am server-local time,
-re-fetching a rolling 3-day window each time; re-sent sleep records are
-silently deduplicated, so a missed run is caught up by the next one rather
-than needing its own retry logic.
+re-fetching a rolling 3-day window each time. Re-sent sleep records are
+deduplicated, so a missed run is caught up by the next one.
 
 ---
 
@@ -437,27 +419,25 @@ hole in the record found days later. Over one three-week stretch that was 270
 hours dark, 55% of the period, the longest single silence 39 hours.
 
 [`scripts/freshness_check.py`](scripts/freshness_check.py) watches for it, run
-by `retrace-freshness.timer` every five minutes. The rule is plain: no fix from
+by `retrace-freshness.timer` every five minutes. The rule is no fix from
 `STALE_ALERT_DEVICE` for `STALE_ALERT_AFTER_MINUTES`, so an alert lands within
 about fifteen minutes of the fixes stopping.
 
-**One message per outage, and one when it ends.** A marker in `state` records
-which outage has been reported, so a 39-hour silence sends one message rather
-than the four hundred a five-minute timer would otherwise produce. When fixes
-resume, a second message says how long the hole was. The marker is written only
-after delivery succeeds, so a failed send is retried on the next run rather than
-leaving the outage recorded as reported.
+One message per outage, and one when it ends. A marker in `state` records which
+outage has been reported, so a 39-hour silence sends one message instead of the
+four hundred a five-minute timer would produce. When fixes resume, a second
+message says how long the hole was. The marker is written only after delivery
+succeeds, so a failed send is retried on the next run.
 
 ```
 location tracking stopped — no fix from iphone for 12 min.
 Open OwnTracks to resume.
 ```
 
-**No notification credentials live in this repo.** `ALERT_COMMAND` names an
-executable that takes the message on stdin and delivers it however it likes; the
-channel, and its secrets, belong to that command. It is run as a bare argument
-list, never through a shell, so `.env` is not a place arbitrary commands get
-composed.
+`ALERT_COMMAND` names an executable that takes the message on stdin and delivers
+it however it likes, so the channel and its secrets belong to that command and
+stay out of this repo. It is run as a bare argument list, never through a shell,
+so `.env` is not a place arbitrary commands get composed.
 
 ```bash
 ALERT_COMMAND=/home/rohan/.claude/skills/notify-rohan/notify.sh
@@ -465,7 +445,7 @@ STALE_ALERT_DEVICE=iphone
 STALE_ALERT_AFTER_MINUTES=10
 ```
 
-Name the device explicitly — `GET /api/v1/devices` lists them. It is never
+Name the device explicitly; `GET /api/v1/devices` lists them. It is never
 inferred, because `points` accumulates retired devices whose last fix is
 permanently weeks old, and anything scanning for quiet devices would alert on
 those forever. A device that has never reported at all is treated as a
@@ -481,12 +461,12 @@ Check it before trusting it:
 `deploy/install.sh` installs the timer whenever `ALERT_COMMAND` is set, and
 skips it otherwise.
 
-**The same path reports a failed unit.** `retrace.service`,
+The same path reports a failed unit. `retrace.service`,
 `retrace-backup.service` and `retrace-whoop.service` each name
 `OnFailure=retrace-alert@%n.service`, which pipes the unit name and the last few
-journal lines through `ALERT_COMMAND` — so a backup that starts failing says so
-instead of failing quietly. That unit has no `OnFailure` of its own: if delivery
-is what is broken, another attempt to report it would be the wrong move.
+journal lines through `ALERT_COMMAND`, so a backup that starts failing says so
+instead of failing quietly. That unit has no `OnFailure` of its own, since a
+broken delivery path cannot be the thing that reports its own breakage.
 
 A tighter `STALE_ALERT_AFTER_MINUTES` catches more; on real data a 10-minute
 threshold reports about a dozen outages a week, roughly a third of them short
@@ -499,27 +479,27 @@ blips that resolve on their own, and 20 minutes drops those.
 Open `https://<your-host>/`. One day at a time, every device combined
 into a single view.
 
-**The day is a vertical time axis.** Stays and trips are the *background* — tinted
+The day is a vertical time axis. Stays and trips are the *background* — tinted
 bands washing across the full width, each carrying a label that sticks to the top
 of the window while you scroll through it — and device activity draws in lanes on
 top, so a block always reads against where you were at the time. Lanes come from
 whichever event kinds that day actually holds: **Screen** (the frontmost Mac app,
 with the websites visited beside it), **Phone**, **Wi-Fi**, **CarPlay**, **Area**.
 
-**Zoom is the main control**, because the data spans five orders of magnitude: a
+Zoom is the main control, because the data spans five orders of magnitude: a
 nine-hour stay and a one-second app switch belong on the same axis. `Day · 1h ·
 10m · 1m · 10s` sets the window, `⌘/Ctrl + wheel` zooms about the pointer, `+`/`-`
-step, and **double-clicking any block zooms to fit it**. Plain scrolling scrolls.
-A preset jumps to whatever is selected, or to the activity nearest wherever you're
-already looking, rather than the raw center of the current view — so `10m` never
-strands you in an empty hour. The ruler's own tick resolution follows the zoom,
-from hourly marks down to every 10 seconds at the deepest level.
+step, and double-clicking any block zooms to fit it. Plain scrolling scrolls. A
+preset jumps to whatever is selected, or to the activity nearest wherever you're
+already looking, so `10m` never strands you in an empty hour. The ruler's own tick
+resolution follows the zoom, from hourly marks down to every 10 seconds at the
+deepest level.
 
-At a wide zoom, anything too small to label collapses into a **cluster** — one
-hatched block reading `Google Chrome ×34` — which dissolves back into its
-individual events the moment the zoom makes them readable. Nothing is hidden and
-nothing is faked: a block's size is always its true duration. Event timestamps are
-whole seconds, so `10s` is as fine as the record goes.
+At a wide zoom, anything too small to label collapses into a cluster: one hatched
+block reading `Google Chrome ×34`, which dissolves back into its individual events
+the moment the zoom makes them readable. A block's size is always its true
+duration. Event timestamps are whole seconds, so `10s` is as fine as the record
+goes.
 
 Colour is per *subject*, not per lane: a subject wears the same colour everywhere
 it appears — on the Mac and on the phone, in the timeline and in the breakdown.
@@ -547,9 +527,8 @@ read alone.
   say — draws as one continuous block crossing it, keeping its own true start
   and end times.
 - **Raw fixes** toggles every individual fix with its accuracy circle, flagged
-  ones in red. This is the feature, not a debug view: it is how you judge whether
-  a stay is real or an artefact of bad reception, and it is exactly what a tracker
-  that discards raw data cannot offer.
+  ones in red. It is how you judge whether a stay is real or an artefact of bad
+  reception, and it is what a tracker that discards raw data cannot offer.
 
 ### Where the day went
 
@@ -582,9 +561,9 @@ observation of what is on screen, while a phone app range can sit open long
 after you have put the phone down. Within one stream, the range that started
 most recently wins.
 
-Time you were somewhere unrecorded is drawn, not hidden — `No location` and
-`Untracked` are ordinary wedges in muted grey. The chart doubles as a coverage
-report, and on a day the phone spent offline that is most of what it has to say.
+Time you were somewhere unrecorded is drawn as ordinary wedges in muted grey,
+`No location` and `Untracked`. The chart doubles as a coverage report, and on a
+day the phone spent offline that is most of what it has to say.
 
 ### Colours
 
@@ -605,12 +584,11 @@ full set each time; `{"subject_colors": {}}` clears it and puts everything back 
 its derived hue.
 
 These live in the database rather than in the source, which keeps them out of git
-and puts them in the nightly backup — which apps and sites you use is yours, not
+and puts them in the nightly backup. Which apps and sites you use is yours, not
 the project's. They follow you to every device that opens the UI.
 
-**Draw areas before you bother with geocoding.** Ten boxes — home, work, gym,
-parents — name about 80 % of your stay-time with no external calls and no
-ambiguity:
+Draw areas before reaching for geocoding. Ten boxes — home, work, gym, parents —
+name about 80 % of your stay-time with no external calls and no ambiguity:
 
 ```bash
 curl -X POST localhost:8420/api/v1/areas \
@@ -618,25 +596,24 @@ curl -X POST localhost:8420/api/v1/areas \
   -d '{"name":"Home","min_lat":51.5064,"min_lon":-0.1288,"max_lat":51.5084,"max_lon":-0.1268}'
 ```
 
-Reverse geocoding is **off by default** (`GEOCODING_ENABLED`). It sends your
-coordinates to a public service; turn it on deliberately or not at all.
+Reverse geocoding is off by default (`GEOCODING_ENABLED`). It sends your
+coordinates to a public service, so turn it on deliberately.
 
-**The map tiles are the one thing that leaves the box while you use it.** Leaflet
-is vendored and the app makes no other third-party request, but the tiles behind
-the map come from `tile.openstreetmap.org`, so opening a day asks OpenStreetMap
-for imagery covering wherever you were — your home and workplace, at the zoom
-you are looking at them. `Referrer-Policy: no-referrer` keeps your hostname out
-of those requests, and the tile coordinates themselves are the price of a map
-you did not have to host. Serving tiles from this machine is what closes it, and
-that means running a tile server.
+Map tiles are the one request that leaves this machine while you use the UI.
+Leaflet is vendored, but the tiles behind the map come from
+`tile.openstreetmap.org`, so opening a day asks OpenStreetMap for imagery
+covering wherever you were — your home and workplace, at the zoom you are
+looking at them. `Referrer-Policy: no-referrer` keeps your hostname out of those
+requests; the tile coordinates go regardless. Closing that means running your own
+tile server.
 
 ---
 
 ## API
 
-Everything is provider-neutral: no phone app's name appears in a path, so
-swapping recorders never means reconfiguring the phone. Which app sent a payload
-is detected from its shape.
+Paths are provider-neutral: no phone app's name appears in one, so swapping
+recorders is a server-side change. Which app sent a payload is detected from its
+shape.
 
 | | |
 |---|---|
@@ -658,15 +635,15 @@ HTTP Basic password, which is what OwnTracks sends — OwnTracks iOS can set Bas
 auth but not arbitrary headers. Keeping it out of the URL keeps it out of
 uvicorn's access log, which records the query string.
 
-Pagination is keyset, not `OFFSET`: an offset scan re-reads every row it skips and
-falls apart once a range runs to hundreds of pages.
+Pagination is keyset: an `OFFSET` scan re-reads every row it skips and falls
+apart once a range runs to hundreds of pages.
 
 ---
 
 ## Tuning
 
-Every threshold is in `.env`. Change one, rebuild, compare. Raw fixes are never
-touched by a rebuild and neither are your names and notes:
+Every threshold is in `.env`. Change one, rebuild, compare. A rebuild leaves raw
+fixes alone, and your names and notes with them:
 
 ```bash
 sudo systemctl restart retrace
@@ -687,11 +664,11 @@ The ones that matter:
 | `BREAKDOWN_TRIP_MIN_FIXES_PER_HOUR` | 4 | Fix density below which `/breakdown` reads a trip as a gap in the record rather than a journey |
 | `STALE_ALERT_AFTER_MINUTES` | 10 | Silence from `STALE_ALERT_DEVICE` that raises an alert |
 
-**Accuracy is a weight, not a filter.** Fixes are never dropped for a large
-accuracy radius — that radius is a confidence estimate, not proof the position is
-wrong, and discarding those fixes replaces real route geometry with straight
-lines. Only genuinely absurd values (>10 km) and Null Island are flagged, and
-flagged fixes are *kept*, just excluded from derived output.
+Accuracy is a weight, not a filter. Fixes are never dropped for a large accuracy
+radius: the radius is a confidence estimate, not proof the position is wrong, and
+discarding those fixes replaces real route geometry with straight lines. Only
+absurd values (>10 km) and Null Island are flagged, and flagged fixes are *kept*,
+just excluded from derived output.
 
 To see the effect of a change before your own data is dense enough to judge:
 
@@ -710,7 +687,7 @@ at 04:17 backs up when it comes back.
 
 It uses SQLite's online backup API rather than copying the file: the database is
 in WAL mode and being written to, so a byte-for-byte copy can capture a torn page
-and a stale `-wal` — an archive that only turns out to be unreadable on the day
+and a stale `-wal`, giving an archive that turns out to be unreadable on the day
 you need it. Each snapshot is opened and integrity-checked before it is allowed
 to displace an older one.
 
@@ -727,8 +704,8 @@ gunzip -c data/backups/daily/tracker-20260804.db.gz > data/tracker.db
 sudo systemctl start retrace
 ```
 
-The derived layer needs no backup at all — `POST /api/v1/reprocess` rebuilds all
-of it from the raw fixes. Only `points`, `places`, `areas` and `stay_notes` hold
+The derived layer needs no backup: `POST /api/v1/reprocess` rebuilds all of it
+from the raw fixes. Only `points`, `places`, `areas` and `stay_notes` hold
 anything irreplaceable.
 
 ---
@@ -749,9 +726,9 @@ SQL
 sudo systemctl start retrace
 ```
 
-That's the exact change `events.device` needed when it was added — a live
+That is the exact change `events.device` needed when it was added, a live
 example as much as a template. `ALTER TABLE ... ADD COLUMN` is safe against a
-running database: it just adds the column, and existing rows get `NULL`.
+populated table: it adds the column, and existing rows get `NULL`.
 
 A type change, a new CHECK or a column reorder needs the create-copy-drop-rename
 dance instead, in one transaction:
@@ -766,11 +743,11 @@ COMMIT;
 ```
 
 The service is the only writer, so with it stopped the database is yours alone.
-Take the backup first: it is the rollback.
+Take the backup first; it is the rollback path.
 
 ---
 
-## How it decides things
+## Design
 
 ```
 points          raw fixes, immutable, never deleted, never downsampled
@@ -780,41 +757,37 @@ stays + trips   derived; delete-and-rebuild over a window, idempotent
 places          user edits live HERE, and a rebuild never touches them
 ```
 
-Three rules hold the whole design together:
+Three rules hold the design together.
 
 **Raw fixes are immutable.** Bad ones are flagged, never removed. Every derived
 query adds `AND anomaly IS NOT 1`. If a flag turns out to be wrong, the data is
 still there.
 
 **Points are never stamped with the stay they belong to.** A stay is recomputed
-from the points in its window every time. Claiming points means a stay can never
-grow or be re-evaluated when fixes arrive late — which is normal on iOS, where a
+from the points in its window every time. Claiming points would stop a stay
+growing or being re-evaluated when fixes arrive late, which is normal on iOS: a
 phone that was out of signal uploads an hour of history at once.
 
 **User edits are a separate layer.** Names, notes and places live in tables the
 rebuild does not write to, with `name_locked_at` recording that you chose a name
-deliberately. A nightly job silently clobbering a name you set is the failure that
-makes people abandon a tracker.
+deliberately. A name you set survives every rebuild after it.
 
-Stay detection is a single-pass sweep with two departures from the usual approach:
-a **drift cap** on distance from the stay's first fix, so a slow walk cannot drag
-the running centroid along behind it; and **gap handling by displacement** rather
-than by blind splitting, so tracking that stops when you settle at the gym and
-resumes as you leave still produces one stay rather than none.
+Stay detection is a single-pass sweep with two additions: a drift cap on
+distance from the stay's first fix, so a slow walk cannot drag the running
+centroid along behind it; and gap handling by displacement, so tracking that
+stops when you settle at the gym and resumes as you leave produces one stay.
 
-Every stay carries a **confidence score** (0–100) with its breakdown stored
+Every stay carries a confidence score (0–100) with its breakdown stored
 alongside it — dwell, tightness, place match, density, accuracy — so you can sort
-by it, hide the weak ones, and debug the algorithm against real data instead of
-guessing.
+by it, hide the weak ones, and check the algorithm against real data.
 
-Timezone is resolved **per stay from its own coordinates**, not from one account
-setting, so a travel day puts each stay on the correct local date.
+Timezone is resolved per stay from its own coordinates, so a travel day puts each
+stay on the correct local date.
 
-`events` sits outside this pipeline — a flat, independently-sourced log
-(OwnTracks geofence transitions, Shortcuts device signals) with no rebuild
-step of its own. The day view pairs its start/end pings into ranges at read
-time, the same way `timeline.py` already assembles stays and trips into a
-day: a presentation step, not a stored derivation.
+`events` sits outside this pipeline: a flat, independently-sourced log (OwnTracks
+geofence transitions, Shortcuts device signals) with no rebuild step. The day
+view pairs its start/end pings into ranges at read time, the same way
+`timeline.py` assembles stays and trips into a day.
 
 ---
 
@@ -826,10 +799,10 @@ day: a presentation step, not a stored derivation.
 
 `tests/conftest.py` has a `Track` builder that produces deterministic point
 streams — "sat still for six hours, drove 40 km, phone went quiet for two hours" —
-so tuning is measurable rather than a matter of opinion. `test_segment.py` is the
-one that matters: each case in it is a real failure mode (a stay across midnight,
-a gap while stationary versus a gap while travelling, a slow walk, a loop returning
-to its start, a teleport outlier mid-drive, two devices interleaved).
+so tuning is measurable. Each case in `test_segment.py` is a real failure mode: a
+stay across midnight, a gap while stationary versus a gap while travelling, a slow
+walk, a loop returning to its start, a teleport outlier mid-drive, two devices
+interleaved.
 
 ---
 
@@ -838,9 +811,9 @@ to its start, a teleport outlier mid-drive, two devices interleaved).
 `scripts/inspect_page.py` drives headless Chromium (the `playwright` package, listed
 in `requirements-dev.txt`) to read a rendered page back as structured text — element
 positions, dataset attributes, trimmed text, and the resolved `--accent` colour each
-block carries — plus any console output and JS errors. It never takes a screenshot;
-an image costs far more tokens than the same information as text, and everything the
-day view renders (block position, colour, label) is readable straight off the DOM.
+block carries — plus any console output and JS errors. The output is text because
+everything the day view renders (block position, colour, label) is readable straight
+off the DOM, at a fraction of what the same information costs as an image.
 
 Point it at a throwaway instance so iterating doesn't disturb the live service or
 depend on whatever today's real data happens to contain:
@@ -857,9 +830,8 @@ INGEST_TOKEN=dev-token .venv/bin/python scripts/synth_day.py --url http://127.0.
 
 `--fill` and `--click` (both repeatable) drive the page before inspecting — set the
 date input, click a zoom preset, click a block — and `--select` chooses which
-elements to dump (default `.block`). Nothing stops it from pointing at the real
-`retrace.service` on `127.0.0.1:8420` instead, when inspecting real data is actually
-what's useful.
+elements to dump (default `.block`). It can also point at the live
+`retrace.service` on `127.0.0.1:8420`, when inspecting real data is what's useful.
 
 One-time setup: `.venv/bin/pip install -r requirements-dev.txt`, then
 `.venv/bin/playwright install chromium` — this downloads a browser binary
@@ -902,10 +874,3 @@ Then try lowering `STAY_RADIUS_M` or `STAY_DRIFT_CAP` and reprocessing.
 **Two visits merged into one.** The gap between them was under
 `GAP_RESUME_MAX_SECONDS` and you came back to within `GAP_RESUME_DISTANCE_M`.
 Lower either.
-
----
-
-## Not built yet
-
-`trips.mode` exists and is unused. Activity classification, a Google Takeout
-import, and multi-user support are all out of scope for now.
