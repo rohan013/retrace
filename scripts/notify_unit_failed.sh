@@ -30,5 +30,7 @@ DETAIL="$(journalctl -u "$UNIT" -n 8 --no-pager -o cat 2>/dev/null || true)"
 
 {
     echo "$UNIT failed on $(hostname)."
-    [[ -n "$DETAIL" ]] && printf '\n%s\n' "$DETAIL"
+    # An if, not &&: with pipefail, a false test here would fail the whole pipeline even
+    # though the message was delivered.
+    if [[ -n "$DETAIL" ]]; then printf '\n%s\n' "$DETAIL"; fi
 } | "$ALERT_COMMAND"
