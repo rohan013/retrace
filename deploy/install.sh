@@ -66,6 +66,9 @@ fi
 if grep -qE '^ALERT_COMMAND=.+' "$ROOT/.env"; then
     ALERT_CMD="$(sed -n 's/^ALERT_COMMAND=//p' "$ROOT/.env" | head -1 | tr -d '"'"'"'')"
     echo "== installing freshness alert timer (sudo) =="
+    # The alert units name this in ReadWritePaths=, and systemd refuses to start
+    # a unit whose path is missing.
+    install -d -m 700 "$HOME/.local/state/notify-rohan"
     sudo cp "$ROOT"/deploy/retrace-freshness.service "$ROOT"/deploy/retrace-freshness.timer \
             "$ROOT"/deploy/retrace-alert@.service "$UNIT_DIR/"
     sudo systemctl daemon-reload

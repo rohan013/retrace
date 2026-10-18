@@ -17,6 +17,9 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
+# The delivery command keeps rate-limit state here, shared with every other
+# caller, so a crash-looping unit cannot flood the channel.
+ReadWritePaths=/home/rohan/.local/state/notify-rohan
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 RestrictSUIDSGID=yes

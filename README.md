@@ -468,6 +468,13 @@ journal lines through `ALERT_COMMAND`, so a backup that starts failing says so
 instead of failing quietly. That unit has no `OnFailure` of its own, since a
 broken delivery path cannot be the thing that reports its own breakage.
 
+`retrace.service` restarts every three seconds and never gives up, so a crash
+loop produces one failure, and one alert, per attempt. `notify.sh` caps delivery
+at 10 messages in any 10 minutes across all its callers: past that it sends a
+single notice, drops the rest with exit 75, and the next message through says how
+many were dropped. Its state lives in `~/.local/state/notify-rohan`, which both
+alert units list in `ReadWritePaths=` and `deploy/install.sh` creates.
+
 A tighter `STALE_ALERT_AFTER_MINUTES` catches more; on real data a 10-minute
 threshold reports about a dozen outages a week, roughly a third of them short
 blips that resolve on their own, and 20 minutes drops those.

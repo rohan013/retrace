@@ -13,6 +13,8 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/home/rohan/tracker/data
+# The delivery command keeps rate-limit state here, shared with every other caller.
+ReadWritePaths=/home/rohan/.local/state/notify-rohan
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 RestrictSUIDSGID=yes
