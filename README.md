@@ -46,8 +46,7 @@ data/         the database and its backups (gitignored)
 
 ```bash
 cd /home/rohan/tracker
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+uv sync --no-dev
 
 cp .env.example .env
 python3 -c "import secrets; print('INGEST_TOKEN=' + secrets.token_urlsafe(32))"
@@ -815,8 +814,8 @@ interleaved.
 
 ## Browser inspection
 
-`scripts/inspect_page.py` drives headless Chromium (the `playwright` package, listed
-in `requirements-dev.txt`) to read a rendered page back as structured text — element
+`scripts/inspect_page.py` drives headless Chromium (the `playwright` package, in the
+`dev` dependency group) to read a rendered page back as structured text — element
 positions, dataset attributes, trimmed text, and the resolved `--accent` colour each
 block carries — plus any console output and JS errors. The output is text because
 everything the day view renders (block position, colour, label) is readable straight
@@ -840,7 +839,7 @@ date input, click a zoom preset, click a block — and `--select` chooses which
 elements to dump (default `.block`). It can also point at the live
 `retrace.service` on `127.0.0.1:8420`, when inspecting real data is what's useful.
 
-One-time setup: `.venv/bin/pip install -r requirements-dev.txt`, then
+One-time setup: `uv sync`, then
 `.venv/bin/playwright install chromium` — this downloads a browser binary
 independent of pip, into `~/.cache/ms-playwright`. Running it also needs a handful
 of system shared libraries (`sudo playwright install-deps`, or the equivalent

@@ -28,7 +28,7 @@ fi
 
 if [[ ! -x "$ROOT/.venv/bin/uvicorn" ]]; then
     echo "error: $ROOT/.venv/bin/uvicorn not found — run:" >&2
-    echo "  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+    echo "  uv sync --no-dev" >&2
     exit 1
 fi
 
