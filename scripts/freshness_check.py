@@ -20,6 +20,12 @@ hole was.
 Delivery is whatever ALERT_COMMAND names: an executable that takes the message
 on stdin. Nothing about Telegram, or any other channel, is known here.
 
+Without ALERT_COMMAND, delivery is left to systemd: the message is printed and
+the run exits non-zero, so the unit's OnFailure= handler sends it with the last
+journal lines. That is for a service user that cannot run the delivery command
+itself. The marker is then written before delivery, since the exit status is
+the delivery, so a handler that fails to send loses that one message.
+
     scripts/freshness_check.py               # check, and alert if stale
     scripts/freshness_check.py --dry-run     # print what it would send
     scripts/freshness_check.py --force       # send a test message
@@ -46,6 +52,9 @@ ALERT_FIX_TS_KEY = "freshness_alert_fix_ts"
 # already retries curl twice with its own 20s timeout, so this only has to stop
 # a wedged command from holding the timer's run open indefinitely.
 SEND_TIMEOUT_SECONDS = 90
+
+# Exit status of a run that has a message for OnFailure= to deliver.
+EXIT_REPORT = 1
 
 
 @dataclass(slots=True)
@@ -146,9 +155,6 @@ def main() -> int:
     args = parser.parse_args()
 
     command = os.environ.get("ALERT_COMMAND", "")
-    if not command:
-        print("ALERT_COMMAND not set -- fill it in .env first", file=sys.stderr)
-        return 1
 
     device = config.STALE_ALERT_DEVICE
     if not device:
@@ -163,6 +169,9 @@ def main() -> int:
         message = f"retrace freshness check — test message, watching {device}."
         if args.dry_run:
             print(message)
+        elif not command:
+            print(message)
+            return EXIT_REPORT
         else:
             send(command, message)
         print("freshness check: test message sent")
@@ -197,13 +206,18 @@ def main() -> int:
         # Deliver before recording it. A send that fails leaves the marker as it
         # was, so the next run tries again rather than the outage being
         # silently written off as reported.
-        send(command, decision.message)
+        if command:
+            send(command, decision.message)
 
         if decision.mark is None:
             conn.execute("DELETE FROM state WHERE key = ?", (ALERT_FIX_TS_KEY,))
         else:
             db.set_state(conn, ALERT_FIX_TS_KEY, str(decision.mark))
 
+    if not command:
+        # Last, so it is within the journal lines OnFailure= sends.
+        print(f"freshness check: {decision.action}\n{decision.message}")
+        return EXIT_REPORT
     print(f"freshness check: {decision.action} — {decision.message.splitlines()[0]}")
     return 0
 

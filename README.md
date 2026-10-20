@@ -444,6 +444,14 @@ STALE_ALERT_DEVICE=iphone
 STALE_ALERT_AFTER_MINUTES=10
 ```
 
+Leave `ALERT_COMMAND` unset when the check runs as a user that cannot run the
+delivery command, such as a dedicated service user. The check then prints the
+message and exits non-zero, and the unit's `OnFailure=` handler delivers it
+with the last journal lines. The alert and the recovery message each arrive as
+a failed run of `retrace-freshness.service`; the runs in between succeed. In
+this mode the marker is written before delivery, because the exit status is
+the delivery, so a handler that fails to send loses that one message.
+
 Name the device explicitly; `GET /api/v1/devices` lists them. It is never
 inferred, because `points` accumulates retired devices whose last fix is
 permanently weeks old, and anything scanning for quiet devices would alert on

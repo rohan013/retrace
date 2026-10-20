@@ -161,3 +161,66 @@ def test_a_failed_delivery_raises_so_the_marker_is_not_written(tmp_path):
 
     with pytest.raises(subprocess.CalledProcessError):
         freshness.send(str(script), "message")
+
+
+# -- delivery through systemd ------------------------------------------------
+
+
+def _run(monkeypatch, now, command=None, argv=()):
+    monkeypatch.setattr(freshness.time, "time", lambda: now)
+    monkeypatch.setattr(sys, "argv", ["freshness_check.py", *argv])
+    if command is None:
+        monkeypatch.delenv("ALERT_COMMAND", raising=False)
+    else:
+        monkeypatch.setenv("ALERT_COMMAND", command)
+    return freshness.main()
+
+
+def _fix(conn, ts):
+    conn.execute(
+        "INSERT INTO points(device, ts, lat, lon, source, created_at) VALUES(?, ?, 0.1, 0.1, 'test', ?)",
+        ("iphone", ts, ts),
+    )
+
+
+@pytest.fixture
+def watched(conn, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "STALE_ALERT_DEVICE", "iphone")
+    monkeypatch.setattr(config, "STALE_ALERT_AFTER_MINUTES", STALE_AFTER // 60)
+    _fix(conn, NOW)
+    return conn
+
+
+def test_without_a_command_an_outage_exits_non_zero_once(watched, monkeypatch, capsys):
+    """Unset ALERT_COMMAND hands delivery to the unit's OnFailure=: the run that
+    first sees the outage fails with the message as its last output, and the
+    runs after it succeed quietly."""
+    assert _run(monkeypatch, NOW + STALE_AFTER + 60) == freshness.EXIT_REPORT
+    assert "no fix from iphone" in capsys.readouterr().out.splitlines()[-2]
+    assert freshness.db.get_state(watched, freshness.ALERT_FIX_TS_KEY) == str(NOW)
+
+    assert _run(monkeypatch, NOW + STALE_AFTER + 360) == 0
+
+
+def test_without_a_command_a_recovery_also_exits_non_zero(watched, monkeypatch):
+    freshness.db.set_state(watched, freshness.ALERT_FIX_TS_KEY, str(NOW))
+    _fix(watched, NOW + 3600)
+
+    assert _run(monkeypatch, NOW + 3660) == freshness.EXIT_REPORT
+    assert freshness.db.get_state(watched, freshness.ALERT_FIX_TS_KEY) is None
+
+
+def test_without_a_command_a_healthy_run_succeeds(watched, monkeypatch):
+    assert _run(monkeypatch, NOW + 60) == 0
+
+
+def test_with_a_command_an_outage_is_delivered_and_exits_zero(watched, monkeypatch, tmp_path):
+    sink = tmp_path / "received.txt"
+    script = tmp_path / "deliver.sh"
+    script.write_text(f'#!/bin/sh\ncat > "{sink}"\n')
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+
+    assert _run(monkeypatch, NOW + STALE_AFTER + 60, command=str(script)) == 0
+    assert "no fix from iphone" in sink.read_text()
