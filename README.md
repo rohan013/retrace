@@ -439,7 +439,7 @@ stay out of this repo. It is run as a bare argument list, never through a shell,
 so `.env` is not a place arbitrary commands get composed.
 
 ```bash
-ALERT_COMMAND=/home/rohan/.claude/skills/notify-rohan/notify.sh
+ALERT_COMMAND=/usr/local/bin/stratos-notify
 STALE_ALERT_DEVICE=iphone
 STALE_ALERT_AFTER_MINUTES=10
 ```
